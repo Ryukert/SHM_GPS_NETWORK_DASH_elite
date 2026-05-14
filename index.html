@@ -74,11 +74,33 @@
         <div class="metric"><span>Frecuencia dominante</span><b id="freqDom">-</b></div><div class="metric"><span>Muestreo</span><b id="sampleRate">-</b></div><div class="metric"><span>Batería</span><b id="battery">-</b></div><div class="metric"><span>Satélites</span><b id="satellites">-</b></div>
       </div>
       <div class="json-panel"><div class="json-title">Paquete JSON del nodo</div><pre id="jsonPacket">{}</pre></div>
+      <div class="export-range-panel">
+        <div class="export-range-title">Rango de descarga</div>
+        <div class="range-grid">
+          <label><span>Día y hora inicial</span><input type="datetime-local" id="exportStart" /></label>
+          <label><span>Día y hora final</span><input type="datetime-local" id="exportEnd" /></label>
+          <label><span>Intervalo de datos</span>
+            <select id="exportStep">
+              <option value="1">Cada 1 segundo</option>
+              <option value="5" selected>Cada 5 segundos</option>
+              <option value="10">Cada 10 segundos</option>
+              <option value="30">Cada 30 segundos</option>
+              <option value="60">Cada 1 minuto</option>
+              <option value="300">Cada 5 minutos</option>
+            </select>
+          </label>
+          <div class="range-summary">
+            <span>Registros estimados</span>
+            <b id="exportEstimate">-</b>
+          </div>
+        </div>
+        <p id="exportRangeWarning" class="range-warning"></p>
+      </div>
       <div class="download-actions">
         <button class="btn primary" id="btnExportSelectedCsv">Descargar CSV del nodo</button>
         <button class="btn" id="btnExportSelectedExcel">Descargar Excel del nodo</button>
       </div>
-      <p class="download-note">La descarga genera un historial simulado del nodo seleccionado con aceleración X/Y/Z, RMS, frecuencia dominante, GPS, batería y estado.</p>
+      <p class="download-note">La descarga respeta el día y la hora seleccionados. En esta versión los registros son simulados; después se puede conectar a Supabase/Firebase para descargar datos reales por rango.</p>
     </aside>
 
     <section class="card controls-card wide-full">
