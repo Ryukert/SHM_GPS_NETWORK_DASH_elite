@@ -28,3 +28,8 @@ Configuración recomendada:
 
 
 Actualización: esta versión distribuye nodos en todo México mediante polígonos aproximados de cobertura territorial, no solo alrededor de capitales.
+
+
+## Descarga por nodo
+
+Al seleccionar un marcador o una fila de la tabla, el panel lateral permite descargar el historial simulado del nodo en formato CSV o Excel (.xlsx). La hoja Excel incluye una pestaña de historial y otra de metadatos del nodo.

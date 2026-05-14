@@ -218,17 +218,136 @@ function addNodes(count=100){
   for(let i=0;i<count;i++){ nodes.push(runtime(makeTerritoryNode(idx++))); }
   render();
 }
+
+function safeCell(value){
+  return String(value ?? '').replace(/"/g,'""');
+}
+function downloadBlob(filename, content, mime){
+  const blob = new Blob([content], { type:mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+function hashString(str){
+  let h = 2166136261;
+  for(let i=0;i<str.length;i++){
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+function mulberry32(seed){
+  return function(){
+    let t = seed += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function generateSelectedNodeHistory(n, samples=420){
+  const rand = mulberry32(hashString(n.id));
+  const rows = [];
+  const nowMs = Date.now();
+  const fs = Math.max(1, Number(n.sampleRate) || 165);
+  const dtMs = 1000 / fs;
+  const baseFreq = Number(n.freqDominante) || 4.5;
+  const riskFactor = n.status === 'alerta' ? 2.2 : n.status === 'observacion' ? 1.55 : n.status === 'bateria_baja' ? 1.15 : n.status === 'sin_conexion' ? 0.05 : 1;
+  for(let i=0;i<samples;i++){
+    const t = i / fs;
+    const timestamp = new Date(nowMs - (samples-i)*dtMs).toISOString();
+    const noiseX = (rand() - 0.5) * 0.035 * riskFactor;
+    const noiseY = (rand() - 0.5) * 0.030 * riskFactor;
+    const noiseZ = (rand() - 0.5) * 0.022 * riskFactor;
+    const ax = Number((Math.sin(2*Math.PI*baseFreq*t) * (n.rmsX || .05) * 8 + noiseX).toFixed(5));
+    const ay = Number((Math.cos(2*Math.PI*(baseFreq*.82)*t) * (n.rmsY || .05) * 8 + noiseY).toFixed(5));
+    const az = Number((Math.sin(2*Math.PI*(baseFreq*.48)*t) * (n.rmsZ || .03) * 6 + noiseZ).toFixed(5));
+    const rms = Number(Math.sqrt(ax*ax + ay*ay + az*az).toFixed(5));
+    rows.push({
+      timestamp,
+      device_id:n.id,
+      node_name:n.name,
+      structure_type:n.type,
+      state:n.state,
+      region:n.region,
+      city_reference:n.city,
+      site:n.site,
+      latitude:n.lat,
+      longitude:n.lon,
+      gps_fix:n.gpsFix ? 'true' : 'false',
+      satellites:n.satellites,
+      acceleration_x_mm_s2:ax,
+      acceleration_y_mm_s2:ay,
+      acceleration_z_mm_s2:az,
+      rms_mm_s2:rms,
+      rms_global_node_mm_s2:n.rmsGlobal,
+      dominant_frequency_hz:n.freqDominante,
+      sample_rate_hz:n.sampleRate,
+      battery_percent:n.battery,
+      status:n.status,
+      condition:stateLabels[n.status] || n.status
+    });
+  }
+  return rows;
+}
+function rowsToCsv(rows){
+  if(!rows.length) return '';
+  const headers = Object.keys(rows[0]);
+  const lines = [headers.join(',')];
+  rows.forEach(row=>{
+    lines.push(headers.map(h=>`"${safeCell(row[h])}"`).join(','));
+  });
+  return lines.join('\n');
+}
+function filenameForNode(ext){
+  const n = selected();
+  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  return `${n.id}_datos_${stamp}.${ext}`;
+}
+function exportSelectedCsv(){
+  const rows = generateSelectedNodeHistory(selected(), 420);
+  downloadBlob(filenameForNode('csv'), rowsToCsv(rows), 'text/csv;charset=utf-8');
+}
+function exportSelectedExcel(){
+  const n = selected();
+  const rows = generateSelectedNodeHistory(n, 420);
+  if(window.XLSX){
+    const wb = XLSX.utils.book_new();
+    const wsData = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, wsData, 'Historial nodo');
+    const meta = [
+      ['Campo','Valor'],
+      ['device_id', n.id], ['name', n.name], ['type', n.type], ['state', n.state], ['region', n.region],
+      ['lat', n.lat], ['lon', n.lon], ['gps_fix', n.gpsFix], ['satellites', n.satellites],
+      ['rms_global_mm_s2', n.rmsGlobal], ['freq_dominante_hz', n.freqDominante], ['sample_rate_hz', n.sampleRate],
+      ['battery_percent', n.battery], ['status', stateLabels[n.status] || n.status]
+    ];
+    const wsMeta = XLSX.utils.aoa_to_sheet(meta);
+    XLSX.utils.book_append_sheet(wb, wsMeta, 'Metadatos');
+    XLSX.writeFile(wb, filenameForNode('xlsx'));
+    return;
+  }
+  // Respaldo si no carga la librería externa: Excel abre este archivo .xls basado en HTML.
+  const headers = Object.keys(rows[0]);
+  const table = `<table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${headers.map(h=>`<td>${safeCell(r[h])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  downloadBlob(filenameForNode('xls'), table, 'application/vnd.ms-excel;charset=utf-8');
+}
+
 function exportCsv(){
   const headers=['id','name','type','state','region','lat','lon','rms_global','freq_dominante_hz','fs_hz','battery','status','last_update'];
   const rows=nodes.map(n=>headers.map(h=>String(n[h]??'').replaceAll(',',';')).join(','));
-  const blob=new Blob([[headers.join(','),...rows].join('\n')],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='red_nacional_shm_gps.csv'; a.click(); URL.revokeObjectURL(a.href);
+  downloadBlob('red_nacional_shm_gps.csv', [headers.join(','),...rows].join('\n'), 'text/csv;charset=utf-8');
 }
 function bind(){
   $('btnToggle').addEventListener('click',()=>{running=!running; $('btnToggle').textContent=running?'Pausar simulación':'Reanudar simulación'; updateHeader();});
   $('btnAddNodes').addEventListener('click',()=>addNodes(100));
   $('btnClearEvents').addEventListener('click',()=>{events.length=0; updateEvents();});
   $('btnExport').addEventListener('click',exportCsv);
+  $('btnExportSelectedCsv').addEventListener('click',exportSelectedCsv);
+  $('btnExportSelectedExcel').addEventListener('click',exportSelectedExcel);
   $('btnNationalView').addEventListener('click',()=>map.setView([23.7,-102.5],5));
   $('btnEventPacifico').addEventListener('click',()=>{forcedRegionEvent='Sur-Sureste'; mode='evento'; $('modeSelect').value='evento'; tick(); setTimeout(()=>forcedRegionEvent=null,12000);});
   $('btnEventCentro').addEventListener('click',()=>{forcedRegionEvent='Centro'; mode='evento'; $('modeSelect').value='evento'; tick(); setTimeout(()=>forcedRegionEvent=null,12000);});
