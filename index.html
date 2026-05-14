@@ -7,6 +7,7 @@
   <meta name="description" content="Dashboard web estático para simular una red nacional de sensores SHM-IoT georreferenciados con GPS en México." />
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
@@ -73,6 +74,11 @@
         <div class="metric"><span>Frecuencia dominante</span><b id="freqDom">-</b></div><div class="metric"><span>Muestreo</span><b id="sampleRate">-</b></div><div class="metric"><span>Batería</span><b id="battery">-</b></div><div class="metric"><span>Satélites</span><b id="satellites">-</b></div>
       </div>
       <div class="json-panel"><div class="json-title">Paquete JSON del nodo</div><pre id="jsonPacket">{}</pre></div>
+      <div class="download-actions">
+        <button class="btn primary" id="btnExportSelectedCsv">Descargar CSV del nodo</button>
+        <button class="btn" id="btnExportSelectedExcel">Descargar Excel del nodo</button>
+      </div>
+      <p class="download-note">La descarga genera un historial simulado del nodo seleccionado con aceleración X/Y/Z, RMS, frecuencia dominante, GPS, batería y estado.</p>
     </aside>
 
     <section class="card controls-card wide-full">
