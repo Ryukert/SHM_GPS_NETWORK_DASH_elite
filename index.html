@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>MIIDT – Red SHM GPS</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="Dashboard web estático para simular una red de sensores SHM-IoT georreferenciados con GPS." />
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="./main.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap hero-inner">
+      <div class="brand-row">
+        <div class="brand-left">
+          <div class="logo-box"><img src="./assets/miidt.png" alt="MIIDT" /></div>
+          <div>
+            <div class="eyebrow">Universidad Autónoma de Guerrero · MIIDT</div>
+            <h1>Red SHM-IoT georreferenciada</h1>
+            <p>Simulación web de nodos estructurales con GPS, RMS, FFT, estado operativo, mapa y telemetría en tiempo real.</p>
+          </div>
+        </div>
+        <div class="brand-right">
+          <span class="pill">Vercel Ready</span>
+          <span class="pill">GPS + Web</span>
+          <span class="pill">165 Hz aprox.</span>
+          <img src="./assets/uagro.png" alt="UAGro" />
+        </div>
+      </div>
+      <div class="hero-grid">
+        <div class="hero-panel">
+          <div class="hero-kicker">Estado de red</div>
+          <div class="hero-value" id="networkState">Simulación activa</div>
+          <div class="hero-sub">Última actualización: <b id="heroLastUpdate">-</b></div>
+        </div>
+        <div class="hero-panel">
+          <div class="hero-kicker">Nodos activos</div>
+          <div class="hero-value"><span id="activeNodes">0</span>/<span id="totalNodes">0</span></div>
+          <div class="hero-sub">Alertas: <b id="alertNodes">0</b> · Observación: <b id="watchNodes">0</b></div>
+        </div>
+        <div class="hero-panel">
+          <div class="hero-kicker">Nodo seleccionado</div>
+          <div class="hero-value" id="heroSelected">SHM-01</div>
+          <div class="hero-sub">GPS fix: <b id="heroGpsFix">-</b> · Satélites: <b id="heroSats">-</b></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap main-grid">
+    <section class="card map-card">
+      <div class="section-head">
+        <div>
+          <h2>Mapa de nodos GPS</h2>
+          <p>Visualización georreferenciada para simular una red de sensores SHM en campo.</p>
+        </div>
+        <div class="status-line"><span class="dot ok"></span><span id="mapStatus">Mapa activo</span></div>
+      </div>
+      <div id="map"></div>
+    </section>
+
+    <aside class="card node-card">
+      <div class="section-head compact">
+        <div>
+          <h2>Nodo seleccionado</h2>
+          <p>Telemetría simulada del punto de monitoreo.</p>
+        </div>
+      </div>
+
+      <div class="selected-box">
+        <div class="selected-top">
+          <div>
+            <div class="small-label">ID</div>
+            <div class="selected-id" id="selectedId">SHM-01</div>
+          </div>
+          <span class="state-badge" id="selectedStatus">Activo</span>
+        </div>
+        <div class="selected-name" id="selectedName">Nodo Puente Norte</div>
+        <div class="selected-meta" id="selectedMeta">Puente · Tijuana, B.C.</div>
+      </div>
+
+      <div class="metric-grid">
+        <div class="metric"><span>RMS X</span><b id="rmsX">-</b></div>
+        <div class="metric"><span>RMS Y</span><b id="rmsY">-</b></div>
+        <div class="metric"><span>RMS Z</span><b id="rmsZ">-</b></div>
+        <div class="metric"><span>RMS global</span><b id="rmsGlobal">-</b></div>
+        <div class="metric"><span>Frecuencia dominante</span><b id="freqDom">-</b></div>
+        <div class="metric"><span>Muestreo</span><b id="sampleRate">-</b></div>
+        <div class="metric"><span>Batería</span><b id="battery">-</b></div>
+        <div class="metric"><span>Satélites</span><b id="satellites">-</b></div>
+      </div>
+
+      <div class="json-panel">
+        <div class="json-title">Paquete JSON del nodo</div>
+        <pre id="jsonPacket">{}</pre>
+      </div>
+    </aside>
+
+    <section class="card controls-card">
+      <div class="section-head">
+        <div>
+          <h2>Controles de simulación</h2>
+          <p>Útil para probar el concepto antes de conectar Supabase, Firebase o una API propia.</p>
+        </div>
+      </div>
+      <div class="controls-grid">
+        <button class="btn primary" id="btnToggle">Pausar simulación</button>
+        <button class="btn" id="btnAddNode">Agregar nodo simulado</button>
+        <button class="btn" id="btnClearEvents">Limpiar eventos</button>
+        <button class="btn" id="btnExport">Exportar nodos CSV</button>
+        <label class="control-field">
+          <span>Velocidad</span>
+          <select id="speedSelect">
+            <option value="3000">Lenta</option>
+            <option value="1500" selected>Normal</option>
+            <option value="700">Rápida</option>
+          </select>
+        </label>
+        <label class="control-field">
+          <span>Modo</span>
+          <select id="modeSelect">
+            <option value="campo" selected>Campo</option>
+            <option value="laboratorio">Laboratorio</option>
+            <option value="evento">Evento vibratorio</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card chart-card wide">
+      <div class="section-head">
+        <div>
+          <h2>Señal de aceleración</h2>
+          <p>Canales X, Y y Z simulados para el nodo seleccionado.</p>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="accChart"></canvas></div>
+    </section>
+
+    <section class="card chart-card">
+      <div class="section-head compact">
+        <div>
+          <h2>RMS móvil</h2>
+          <p>Indicador de intensidad vibratoria.</p>
+        </div>
+      </div>
+      <div class="chart-wrap small"><canvas id="rmsChart"></canvas></div>
+      <div class="events-box">
+        <h3>Eventos recientes</h3>
+        <div id="eventsList" class="events-list"></div>
+      </div>
+    </section>
+
+    <section class="card table-card wide-full">
+      <div class="section-head">
+        <div>
+          <h2>Tabla de nodos SHM</h2>
+          <p>Esta tabla representa la estructura que después puedes guardar en Supabase o Firebase.</p>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Nodo</th><th>Nombre</th><th>Tipo</th><th>Lat</th><th>Lon</th><th>RMS global</th><th>Frecuencia</th><th>Fs</th><th>Batería</th><th>Estado</th>
+            </tr>
+          </thead>
+          <tbody id="nodesTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card deploy-card wide-full">
+      <div class="section-head">
+        <div>
+          <h2>Arquitectura propuesta</h2>
+          <p>Flujo recomendado para convertir la simulación en una red real de monitoreo.</p>
+        </div>
+      </div>
+      <div class="flow">
+        <div><b>GPS + MEMS</b><span>MPU9250 / LSM6DSOX</span></div>
+        <div><b>Microcontrolador</b><span>Arduino RP2040 / ESP32</span></div>
+        <div><b>Gateway</b><span>PC o Raspberry Pi</span></div>
+        <div><b>Nube</b><span>Supabase / Firebase</span></div>
+        <div><b>Web</b><span>Mapa + gráficas</span></div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
