@@ -1,35 +1,38 @@
-# SHM GPS Network Nacional Elite
+# Red Nacional SHM-GPS Elite — Exportación por nodo y rango horario
 
-Dashboard web estático para simular una red nacional de sensores SHM-IoT con georreferenciación GPS en México.
+Dashboard web estático para simular una red nacional de nodos SHM-IoT georreferenciados en México.
 
-## Incluye
+## Funciones principales
 
-- Mapa nacional de México con Leaflet + OpenStreetMap.
-- Agrupamiento de marcadores con Leaflet MarkerCluster.
-- Más de 650 nodos simulados y dispersos en el territorio nacional distribuidos por estados y regiones.
+- Mapa nacional con más de 650 nodos simulados dispersos en México.
 - Filtros por región, tipo de estructura y estado operativo.
-- RMS, frecuencia dominante, frecuencia de muestreo, batería y GPS fix.
-- Eventos nacionales recientes.
-- Gráficas de aceleración y RMS con Chart.js.
-- Exportación CSV.
-- Listo para Vercel como proyecto estático.
+- Selección de nodo desde el mapa o desde la tabla.
+- Panel de telemetría del nodo seleccionado.
+- Selector de día y hora inicial/final para descarga.
+- Selector de intervalo de exportación: 1 s, 5 s, 10 s, 30 s, 1 min o 5 min.
+- Descarga de datos del nodo seleccionado en CSV o Excel XLSX.
+- El Excel incluye hoja de historial y hoja de metadatos del nodo.
+- Proyecto estático compatible con Vercel.
 
-## Despliegue en Vercel
+## Estructura
 
-Sube el contenido de esta carpeta a GitHub e impórtalo en Vercel.
+```text
+assets/
+index.html
+main.css
+main.js
+vercel.json
+README.md
+README_DEPLOY.md
+```
 
-Configuración recomendada:
+## Vercel
 
-- Framework Preset: Other / Static
-- Root Directory: ./
-- Build Command: vacío o `echo "static deploy"`
-- Output Directory: .
-- Install Command: vacío
+Framework Preset: Other / Static
+Build Command: echo "static deploy"
+Output Directory: .
+Install Command: vacío
 
+## Nota
 
-Actualización: esta versión distribuye nodos en todo México mediante polígonos aproximados de cobertura territorial, no solo alrededor de capitales.
-
-
-## Descarga por nodo
-
-Al seleccionar un marcador o una fila de la tabla, el panel lateral permite descargar el historial simulado del nodo en formato CSV o Excel (.xlsx). La hoja Excel incluye una pestaña de historial y otra de metadatos del nodo.
+Los datos son simulados para demostración. La estructura está lista para conectar posteriormente con Supabase, Firebase o una API propia y consultar datos reales por `device_id`, `fecha_inicio` y `fecha_final`.

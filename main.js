@@ -248,26 +248,72 @@ function mulberry32(seed){
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-function generateSelectedNodeHistory(n, samples=420){
-  const rand = mulberry32(hashString(n.id));
+function pad2(v){ return String(v).padStart(2,'0'); }
+function toDatetimeLocalValue(date){
+  return `${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+function initExportRange(){
+  const end = new Date();
+  const start = new Date(end.getTime() - 60*60*1000);
+  if($('exportStart')) $('exportStart').value = toDatetimeLocalValue(start);
+  if($('exportEnd')) $('exportEnd').value = toDatetimeLocalValue(end);
+  updateExportEstimate();
+}
+function getExportRange(){
+  const startInput = $('exportStart')?.value;
+  const endInput = $('exportEnd')?.value;
+  const stepSec = Math.max(1, Number($('exportStep')?.value || 5));
+  let start = startInput ? new Date(startInput) : new Date(Date.now() - 60*60*1000);
+  let end = endInput ? new Date(endInput) : new Date();
+  if(Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())){
+    throw new Error('Selecciona una fecha y hora válida para la descarga.');
+  }
+  if(end <= start){
+    throw new Error('La fecha/hora final debe ser mayor que la inicial.');
+  }
+  const ms = end - start;
+  const estimated = Math.floor(ms / (stepSec*1000)) + 1;
+  return { start, end, stepSec, estimated };
+}
+function updateExportEstimate(){
+  const warn = $('exportRangeWarning');
+  try{
+    const r = getExportRange();
+    const capped = r.estimated > 10000;
+    setText('exportEstimate', `${Math.min(r.estimated,10000).toLocaleString('es-MX')} registros${capped ? ' (límite demo)' : ''}`);
+    if(warn) warn.textContent = capped ? 'El rango seleccionado genera más de 10,000 registros. Para mantener fluido el navegador, esta versión demo limitará la descarga a 10,000 filas. Puedes aumentar el intervalo.' : '';
+  }catch(err){
+    setText('exportEstimate','Rango inválido');
+    if(warn) warn.textContent = err.message;
+  }
+}
+function generateSelectedNodeHistory(n, rangeOverride=null){
+  const range = rangeOverride || getExportRange();
+  const rand = mulberry32(hashString(`${n.id}-${range.start.toISOString()}-${range.end.toISOString()}-${range.stepSec}`));
   const rows = [];
-  const nowMs = Date.now();
-  const fs = Math.max(1, Number(n.sampleRate) || 165);
-  const dtMs = 1000 / fs;
+  const maxRows = 10000;
+  const totalRows = Math.min(range.estimated, maxRows);
   const baseFreq = Number(n.freqDominante) || 4.5;
   const riskFactor = n.status === 'alerta' ? 2.2 : n.status === 'observacion' ? 1.55 : n.status === 'bateria_baja' ? 1.15 : n.status === 'sin_conexion' ? 0.05 : 1;
-  for(let i=0;i<samples;i++){
-    const t = i / fs;
-    const timestamp = new Date(nowMs - (samples-i)*dtMs).toISOString();
+  const stepMs = range.stepSec * 1000;
+  for(let i=0;i<totalRows;i++){
+    const timestampMs = range.start.getTime() + i*stepMs;
+    if(timestampMs > range.end.getTime()) break;
+    const timestamp = new Date(timestampMs).toISOString();
+    const t = i * range.stepSec;
+    const drift = Math.sin(i/180) * 0.08 * riskFactor;
     const noiseX = (rand() - 0.5) * 0.035 * riskFactor;
     const noiseY = (rand() - 0.5) * 0.030 * riskFactor;
     const noiseZ = (rand() - 0.5) * 0.022 * riskFactor;
-    const ax = Number((Math.sin(2*Math.PI*baseFreq*t) * (n.rmsX || .05) * 8 + noiseX).toFixed(5));
-    const ay = Number((Math.cos(2*Math.PI*(baseFreq*.82)*t) * (n.rmsY || .05) * 8 + noiseY).toFixed(5));
-    const az = Number((Math.sin(2*Math.PI*(baseFreq*.48)*t) * (n.rmsZ || .03) * 6 + noiseZ).toFixed(5));
+    const ax = Number((Math.sin(2*Math.PI*baseFreq*t) * (n.rmsX || .05) * 8 + drift + noiseX).toFixed(5));
+    const ay = Number((Math.cos(2*Math.PI*(baseFreq*.82)*t) * (n.rmsY || .05) * 8 + drift*.7 + noiseY).toFixed(5));
+    const az = Number((Math.sin(2*Math.PI*(baseFreq*.48)*t) * (n.rmsZ || .03) * 6 + drift*.45 + noiseZ).toFixed(5));
     const rms = Number(Math.sqrt(ax*ax + ay*ay + az*az).toFixed(5));
     rows.push({
       timestamp,
+      range_start:range.start.toISOString(),
+      range_end:range.end.toISOString(),
+      export_interval_seconds:range.stepSec,
       device_id:n.id,
       node_name:n.name,
       structure_type:n.type,
@@ -302,18 +348,25 @@ function rowsToCsv(rows){
   });
   return lines.join('\n');
 }
-function filenameForNode(ext){
+function filenameForNode(ext, range=null){
   const n = selected();
-  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
-  return `${n.id}_datos_${stamp}.${ext}`;
+  const r = range || getExportRange();
+  const start = r.start.toISOString().slice(0,16).replace(/[:T]/g,'-');
+  const end = r.end.toISOString().slice(0,16).replace(/[:T]/g,'-');
+  return `${n.id}_datos_${start}_a_${end}.${ext}`;
 }
 function exportSelectedCsv(){
-  const rows = generateSelectedNodeHistory(selected(), 420);
-  downloadBlob(filenameForNode('csv'), rowsToCsv(rows), 'text/csv;charset=utf-8');
+  try{
+    const range = getExportRange();
+    const rows = generateSelectedNodeHistory(selected(), range);
+    downloadBlob(filenameForNode('csv', range), rowsToCsv(rows), 'text/csv;charset=utf-8');
+  }catch(err){ alert(err.message); }
 }
 function exportSelectedExcel(){
+  try{
   const n = selected();
-  const rows = generateSelectedNodeHistory(n, 420);
+  const range = getExportRange();
+  const rows = generateSelectedNodeHistory(n, range);
   if(window.XLSX){
     const wb = XLSX.utils.book_new();
     const wsData = XLSX.utils.json_to_sheet(rows);
@@ -321,19 +374,21 @@ function exportSelectedExcel(){
     const meta = [
       ['Campo','Valor'],
       ['device_id', n.id], ['name', n.name], ['type', n.type], ['state', n.state], ['region', n.region],
+      ['range_start', range.start.toISOString()], ['range_end', range.end.toISOString()], ['export_interval_seconds', range.stepSec], ['exported_rows', rows.length],
       ['lat', n.lat], ['lon', n.lon], ['gps_fix', n.gpsFix], ['satellites', n.satellites],
       ['rms_global_mm_s2', n.rmsGlobal], ['freq_dominante_hz', n.freqDominante], ['sample_rate_hz', n.sampleRate],
       ['battery_percent', n.battery], ['status', stateLabels[n.status] || n.status]
     ];
     const wsMeta = XLSX.utils.aoa_to_sheet(meta);
     XLSX.utils.book_append_sheet(wb, wsMeta, 'Metadatos');
-    XLSX.writeFile(wb, filenameForNode('xlsx'));
+    XLSX.writeFile(wb, filenameForNode('xlsx', range));
     return;
   }
   // Respaldo si no carga la librería externa: Excel abre este archivo .xls basado en HTML.
   const headers = Object.keys(rows[0]);
   const table = `<table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${headers.map(h=>`<td>${safeCell(r[h])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-  downloadBlob(filenameForNode('xls'), table, 'application/vnd.ms-excel;charset=utf-8');
+  downloadBlob(filenameForNode('xls', range), table, 'application/vnd.ms-excel;charset=utf-8');
+  }catch(err){ alert(err.message); }
 }
 
 function exportCsv(){
@@ -353,7 +408,8 @@ function bind(){
   $('btnEventCentro').addEventListener('click',()=>{forcedRegionEvent='Centro'; mode='evento'; $('modeSelect').value='evento'; tick(); setTimeout(()=>forcedRegionEvent=null,12000);});
   $('speedSelect').addEventListener('change',e=>{speed=Number(e.target.value); resetTimer();});
   $('modeSelect').addEventListener('change',e=>{mode=e.target.value; tick();});
+  ['exportStart','exportEnd','exportStep'].forEach(id=>$(id)?.addEventListener('change',updateExportEstimate));
   ['regionFilter','typeFilter','statusFilter'].forEach(id=>$(id).addEventListener('change',()=>render(true)));
 }
-function boot(){ nodes=generateNationalNodes(); initMap(); initCharts(); bind(); render(); resetTimer(); }
+function boot(){ nodes=generateNationalNodes(); initMap(); initCharts(); bind(); initExportRange(); render(); resetTimer(); }
 boot();
