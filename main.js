@@ -15,6 +15,46 @@ const capitals = [
   ['Guerrero','Chilpancingo',17.5515,-99.5058],['Oaxaca','Oaxaca',17.0732,-96.7266],['Chiapas','Tuxtla Gutiérrez',16.7569,-93.1292],['Veracruz','Xalapa',19.5438,-96.9102],['Tabasco','Villahermosa',17.9895,-92.9475],['Campeche','Campeche',19.8301,-90.5349],['Yucatán','Mérida',20.9674,-89.5926],['Quintana Roo','Chetumal',18.5001,-88.2961]
 ];
 const types = ['Puente','Edificio','Talud','Presa','Laboratorio','Patrimonio'];
+const mexicoPolygons = {
+  baja: [
+    [32.72,-117.13],[31.80,-116.55],[30.00,-115.55],[28.20,-114.35],[26.10,-113.15],[24.10,-111.60],[22.85,-110.25],[23.40,-109.65],[25.30,-110.70],[27.60,-112.00],[29.80,-113.55],[31.90,-115.10]
+  ],
+  mainland: [
+    [32.70,-114.85],[31.40,-111.10],[29.80,-108.50],[28.00,-105.10],[26.30,-102.20],[25.60,-99.40],[24.60,-97.40],[22.80,-97.20],[21.80,-97.90],[21.25,-90.25],[20.60,-87.00],[18.25,-87.55],[17.10,-90.60],[15.85,-92.20],[14.75,-92.10],[15.40,-95.00],[16.20,-97.90],[16.90,-100.30],[17.60,-102.80],[18.70,-104.70],[20.60,-106.70],[22.80,-108.10],[25.10,-109.10],[27.30,-110.05],[29.70,-111.15],[31.50,-112.70]
+  ]
+};
+function pointInPoly(lat, lon, poly){
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const yi=poly[i][0], xi=poly[i][1];
+    const yj=poly[j][0], xj=poly[j][1];
+    const intersect=((yi>lat)!==(yj>lat)) && (lon < (xj-xi)*(lat-yi)/(yj-yi+1e-12)+xi);
+    if(intersect) inside=!inside;
+  }
+  return inside;
+}
+function randomFromPolygon(poly){
+  const lats=poly.map(p=>p[0]), lons=poly.map(p=>p[1]);
+  const minLat=Math.min(...lats), maxLat=Math.max(...lats), minLon=Math.min(...lons), maxLon=Math.max(...lons);
+  for(let tries=0; tries<500; tries++){
+    const lat=rnd(minLat,maxLat,5), lon=rnd(minLon,maxLon,5);
+    if(pointInPoly(lat,lon,poly)) return [lat,lon];
+  }
+  return [rnd(minLat,maxLat,5), rnd(minLon,maxLon,5)];
+}
+function randomMexicoPoint(){
+  // 14% de los nodos en península de Baja California y 86% en territorio continental/peninsular.
+  return Math.random()<0.14 ? randomFromPolygon(mexicoPolygons.baja) : randomFromPolygon(mexicoPolygons.mainland);
+}
+function nearestCapital(lat, lon){
+  let best=capitals[0], bestD=Infinity;
+  capitals.forEach(base=>{
+    const d=((base[2]-lat)*1.18)**2 + ((base[3]-lon)*Math.cos(lat*Math.PI/180))**2;
+    if(d<bestD){ bestD=d; best=base; }
+  });
+  return best;
+}
+
 let nodes = [];
 let selectedId = 'SHM-MX-001';
 let running = true;
@@ -46,12 +86,29 @@ function makeNode(base, idx, copy=0){
     priority: pick(['Alta','Media','Baja'])
   };
 }
+function makeTerritoryNode(idx){
+  const [lat, lon] = randomMexicoPoint();
+  const [state, city] = nearestCapital(lat, lon);
+  const region = regionForState(state);
+  const type = pick(types);
+  const zone = pick(['Urbano','Rural','Costa','Sierra','Valle','Infraestructura crítica','Corredor carretero','Zona sísmica']);
+  return {
+    id:`SHM-MX-${String(idx).padStart(3,'0')}`,
+    name:`Nodo ${type} ${zone}`,
+    type, state, city, region,
+    lat:rnd(lat-0.015,lat+0.015,5), lon:rnd(lon-0.015,lon+0.015,5),
+    site:`${zone}, ${state}`,
+    battery:rnd(18,100,0),
+    installed:rnd(2024,2026,0),
+    priority: pick(['Alta','Media','Baja'])
+  };
+}
 function generateNationalNodes(){
   const out=[]; let idx=1;
-  capitals.forEach(base=>{
-    const density = regionForState(base[0]) === 'Centro' ? 7 : regionForState(base[0]) === 'Sur-Sureste' ? 6 : 5;
-    for(let c=0;c<density;c++){ out.push(makeNode(base,idx++,c+1)); }
-  });
+  // Cobertura base: al menos 4 nodos por estado alrededor de capitales/zonas urbanas.
+  capitals.forEach(base=>{ for(let c=0;c<4;c++){ out.push(makeNode(base,idx++,c+1)); } });
+  // Cobertura territorial: nodos pseudoaleatorios dentro de polígonos aproximados de México.
+  while(out.length < 650){ out.push(makeTerritoryNode(idx++)); }
   return out.map(runtime);
 }
 function runtime(node){
@@ -156,9 +213,9 @@ function updateCharts(){
 function tick(){ nodes=nodes.map(n=>runtime(n)); nodes.forEach(pushEvent); render(); }
 function render(refreshMarkers=true){ updateHeader(); updateSelected(); if(refreshMarkers)updateMarkers(); updateTable(); updateEvents(); updateRegionCards(); updateCharts(); }
 function resetTimer(){ if(timer)clearInterval(timer); timer=setInterval(()=>{ if(running)tick(); },speed); }
-function addNodes(count=25){
+function addNodes(count=100){
   let idx=nodes.length+1;
-  for(let i=0;i<count;i++){ nodes.push(runtime(makeNode(pick(capitals),idx++,rnd(1,99,0)))); }
+  for(let i=0;i<count;i++){ nodes.push(runtime(makeTerritoryNode(idx++))); }
   render();
 }
 function exportCsv(){
@@ -169,7 +226,7 @@ function exportCsv(){
 }
 function bind(){
   $('btnToggle').addEventListener('click',()=>{running=!running; $('btnToggle').textContent=running?'Pausar simulación':'Reanudar simulación'; updateHeader();});
-  $('btnAddNodes').addEventListener('click',()=>addNodes(25));
+  $('btnAddNodes').addEventListener('click',()=>addNodes(100));
   $('btnClearEvents').addEventListener('click',()=>{events.length=0; updateEvents();});
   $('btnExport').addEventListener('click',exportCsv);
   $('btnNationalView').addEventListener('click',()=>map.setView([23.7,-102.5],5));

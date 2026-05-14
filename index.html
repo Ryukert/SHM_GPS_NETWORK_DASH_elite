@@ -29,7 +29,7 @@
         <div class="brand-right">
           <span class="pill">Vercel Static</span>
           <span class="pill">Mapa México</span>
-          <span class="pill">+150 nodos</span>
+          <span class="pill">+650 nodos dispersos</span>
           <span class="pill">GPS + FFT/RMS</span>
           <img src="./assets/uagro.png" alt="UAGro" />
         </div>
@@ -48,7 +48,7 @@
       <div class="section-head">
         <div>
           <h2>Mapa nacional de nodos GPS</h2>
-          <p>Red simulada con agrupamiento de marcadores para visualizar cientos de nodos sin saturar el mapa.</p>
+          <p>Red simulada con nodos distribuidos en todo el territorio nacional y agrupamiento de marcadores para evitar saturación visual.</p>
         </div>
         <div class="status-line"><span class="dot ok"></span><span id="mapStatus">Mapa nacional activo</span></div>
       </div>
@@ -79,7 +79,7 @@
       <div class="section-head"><div><h2>Controles de red nacional</h2><p>Simula expansión, eventos regionales y exportación para conectar después con Supabase/Firebase.</p></div></div>
       <div class="controls-grid">
         <button class="btn primary" id="btnToggle">Pausar simulación</button>
-        <button class="btn" id="btnAddNodes">Agregar 25 nodos</button>
+        <button class="btn" id="btnAddNodes">Agregar 100 nodos</button>
         <button class="btn danger" id="btnEventPacifico">Simular evento Pacífico</button>
         <button class="btn danger" id="btnEventCentro">Simular evento Centro</button>
         <button class="btn" id="btnClearEvents">Limpiar eventos</button>
@@ -101,7 +101,7 @@
     </section>
 
     <section class="card stats-card wide-full">
-      <div class="section-head"><div><h2>Resumen por región</h2><p>Distribución de nodos, alertas y RMS promedio por zona del país.</p></div></div>
+      <div class="section-head"><div><h2>Resumen por región</h2><p>Distribución nacional de nodos, alertas y RMS promedio por zona del país.</p></div></div>
       <div id="regionCards" class="region-cards"></div>
     </section>
 
