@@ -1,30 +1,19 @@
-# Despliegue rápido
+# Deploy rápido
 
-## En GitHub
+1. Descomprime el ZIP.
+2. Sube el contenido a un repositorio de GitHub.
+3. En Vercel selecciona Add New Project.
+4. Importa el repositorio.
+5. Usa configuración estática.
 
-Sube el contenido completo de esta carpeta, no el ZIP.
+Si Vercel pide Build Command, usa:
 
-Debe verse así:
-
-```text
-assets/
-index.html
-main.css
-main.js
-vercel.json
-README.md
-README_DEPLOY.md
+```bash
+echo "static deploy"
 ```
 
-## En Vercel
+Si pide Output Directory, usa:
 
-- Framework Preset: Other / Static
-- Root Directory: ./
-- Build Command: dejar vacío
-- Output Directory: dejar vacío
-- Install Command: dejar vacío
-
-Si Vercel no te deja vacíos los campos, usa:
-
-- Build Command: `echo "static deploy"`
-- Output Directory: `.`
+```bash
+.
+```

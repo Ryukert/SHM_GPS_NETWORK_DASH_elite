@@ -1,43 +1,27 @@
-# MIIDT – Red SHM-IoT GPS
+# SHM GPS Network Nacional Elite
 
-Dashboard web estático para simular una red de sensores SHM-IoT georreferenciados.
+Dashboard web estático para simular una red nacional de sensores SHM-IoT con georreferenciación GPS en México.
 
-## Características
+## Incluye
 
-- Mapa con OpenStreetMap + Leaflet.
-- Nodos GPS simulados.
-- RMS X/Y/Z, RMS global, frecuencia dominante y frecuencia de muestreo.
-- Tabla de nodos.
-- Gráficas en tiempo real con Chart.js.
+- Mapa nacional de México con Leaflet + OpenStreetMap.
+- Agrupamiento de marcadores con Leaflet MarkerCluster.
+- Más de 150 nodos simulados distribuidos por estados y regiones.
+- Filtros por región, tipo de estructura y estado operativo.
+- RMS, frecuencia dominante, frecuencia de muestreo, batería y GPS fix.
+- Eventos nacionales recientes.
+- Gráficas de aceleración y RMS con Chart.js.
 - Exportación CSV.
-- Listo para Vercel sin `npm install`.
+- Listo para Vercel como proyecto estático.
 
 ## Despliegue en Vercel
 
-1. Sube todos los archivos del proyecto a GitHub.
-2. En Vercel selecciona **Add New Project**.
-3. Importa el repositorio.
-4. Vercel debe detectarlo como proyecto estático.
-5. Deploy.
+Sube el contenido de esta carpeta a GitHub e impórtalo en Vercel.
 
-No usa Next.js, Tailwind ni PostCSS. Por eso evita el error de `tailwindcss` como plugin de PostCSS.
+Configuración recomendada:
 
-## Estructura
-
-```text
-index.html
-main.css
-main.js
-assets/
-vercel.json
-README.md
-```
-
-## Próxima integración real
-
-Para conectar nodos reales, reemplaza la función `tick()` y el arreglo `nodes` por lecturas desde:
-
-- Supabase
-- Firebase Realtime Database
-- API propia en FastAPI
-- WebSocket desde Raspberry Pi o PC
+- Framework Preset: Other / Static
+- Root Directory: ./
+- Build Command: vacío o `echo "static deploy"`
+- Output Directory: .
+- Install Command: vacío
