@@ -63,6 +63,13 @@ let speed = 1800;
 let mode = 'campo';
 let forcedRegionEvent = null;
 let map, clusterGroup;
+// Vista fija del mapa: Chilpancingo de los Bravo, Guerrero.
+const CHILPANCINGO_CENTER = [17.5515, -99.5058];
+const CHILPANCINGO_BOUNDS = L.latLngBounds(
+  [17.35, -99.72],
+  [17.75, -99.30]
+);
+const CHILPANCINGO_ZOOM = 12;
 const markers = new Map();
 const events = [];
 const series = Array.from({length:48},(_,i)=>({ t:String(i).padStart(2,'0'), x:rnd(-3,3), y:rnd(-3,3), z:rnd(-2,2), rms:rnd(.03,.13) }));
@@ -74,7 +81,7 @@ function makeNode(base, idx, copy=0){
   const [state, city, lat, lon] = base;
   const region = regionForState(state);
   const type = pick(types);
-  const jitter = region === 'Centro' ? 0.35 : 0.65;
+  const jitter = city === 'Chilpancingo' ? 0.055 : (region === 'Centro' ? 0.35 : 0.65);
   return {
     id:`SHM-MX-${String(idx).padStart(3,'0')}`,
     name:`Nodo ${type} ${city}${copy?`-${copy}`:''}`,
@@ -136,14 +143,20 @@ function filteredNodes(){
   return nodes.filter(n=>(r==='todas'||n.region===r)&&(t==='todos'||n.type===t)&&(s==='todos'||n.status===s));
 }
 function initMap(){
-  map = L.map('map',{preferCanvas:true}).setView([23.7,-102.5],5);
+  map = L.map('map',{
+    preferCanvas:true,
+    minZoom:11,
+    maxBounds:CHILPANCINGO_BOUNDS,
+    maxBoundsViscosity:1.0
+  }).setView(CHILPANCINGO_CENTER,CHILPANCINGO_ZOOM);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'&copy; OpenStreetMap' }).addTo(map);
   clusterGroup = L.markerClusterGroup({ chunkedLoading:true, maxClusterRadius:44 });
   map.addLayer(clusterGroup);
 }
 function markerHtml(status){ return `<div class="custom-marker ${status}">📡</div>`; }
 function updateMarkers(){
-  const visible = filteredNodes();
+  // El mapa muestra únicamente nodos ubicados dentro del entorno de Chilpancingo.
+  const visible = filteredNodes().filter(n=>CHILPANCINGO_BOUNDS.contains([n.lat,n.lon]));
   clusterGroup.clearLayers(); markers.clear();
   visible.forEach(n=>{
     const icon = L.divIcon({ html:markerHtml(n.status), className:'', iconSize:[42,42], iconAnchor:[21,21] });
@@ -176,7 +189,13 @@ function updateSelected(){
 function updateTable(){
   const visible=filteredNodes().slice(0,120);
   $('nodesTable').innerHTML = visible.map(n=>`<tr data-id="${n.id}"><td><b>${n.id}</b></td><td>${n.name}</td><td>${n.state}</td><td>${n.region}</td><td>${n.type}</td><td>${n.lat.toFixed(5)}</td><td>${n.lon.toFixed(5)}</td><td>${n.rmsGlobal} mm/s²</td><td>${n.freqDominante} Hz</td><td>${n.sampleRate} Hz</td><td>${n.battery}%</td><td><span class="tag ${n.status}">${stateLabels[n.status]}</span></td></tr>`).join('');
-  document.querySelectorAll('#nodesTable tr').forEach(tr=>tr.addEventListener('click',()=>{ selectedId=tr.dataset.id; const n=selected(); map.setView([n.lat,n.lon],8); render(false); }));
+  document.querySelectorAll('#nodesTable tr').forEach(tr=>tr.addEventListener('click',()=>{
+    selectedId=tr.dataset.id;
+    const n=selected();
+    if(CHILPANCINGO_BOUNDS.contains([n.lat,n.lon])) map.setView([n.lat,n.lon],14);
+    else map.setView(CHILPANCINGO_CENTER,CHILPANCINGO_ZOOM);
+    render(false);
+  }));
 }
 function pushEvent(n){
   if(n.status==='activo') return;
@@ -403,7 +422,7 @@ function bind(){
   $('btnExport').addEventListener('click',exportCsv);
   $('btnExportSelectedCsv').addEventListener('click',exportSelectedCsv);
   $('btnExportSelectedExcel').addEventListener('click',exportSelectedExcel);
-  $('btnNationalView').addEventListener('click',()=>map.setView([23.7,-102.5],5));
+  $('btnNationalView').addEventListener('click',()=>map.setView(CHILPANCINGO_CENTER,CHILPANCINGO_ZOOM));
   $('btnEventPacifico').addEventListener('click',()=>{forcedRegionEvent='Sur-Sureste'; mode='evento'; $('modeSelect').value='evento'; tick(); setTimeout(()=>forcedRegionEvent=null,12000);});
   $('btnEventCentro').addEventListener('click',()=>{forcedRegionEvent='Centro'; mode='evento'; $('modeSelect').value='evento'; tick(); setTimeout(()=>forcedRegionEvent=null,12000);});
   $('speedSelect').addEventListener('change',e=>{speed=Number(e.target.value); resetTimer();});
