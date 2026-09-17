@@ -71,6 +71,29 @@ const CHILPANCINGO_BOUNDS = L.latLngBounds(
 );
 const CHILPANCINGO_ZOOM = 12;
 const markers = new Map();
+
+// ───────────────────────── Modo "API real" (red sísmica UABC) ─────────────────────────
+// Fuente de datos: 'sim' (demostración nacional, comportamiento original) o 'real'
+// (datos reales de la API Retriever de Sensores Sísmicos UABC, Baja California).
+let dataSource = 'sim';
+const REAL_API_BASE = 'https://retriever-1031456939583.us-west2.run.app';
+const REAL_POLL_MS = 4000;
+let realTimer = null;
+let realPolling = false;
+// La API real no expone GPS; usamos la ciudad de cada estación como ubicación aproximada
+// (no es la posición exacta del sensor, solo la referencia de la ciudad).
+const REAL_DEVICE_INFO = {
+  'rpi_shm_v56': { name: 'Equipo de pruebas UABC', city: 'Ensenada (laboratorio)', lat: 31.8667, lon: -116.6000, type: 'Laboratorio' },
+  'uabc-estacion-ensenada-01': { name: 'Estación Ensenada', city: 'Ensenada', lat: 31.8667, lon: -116.6000, type: 'Edificio' },
+  'uabc-estacion-mexicali-01': { name: 'Estación Mexicali', city: 'Mexicali', lat: 32.6245, lon: -115.4523, type: 'Edificio' },
+  'uabc-estacion-tijuana-01': { name: 'Estación Tijuana', city: 'Tijuana', lat: 32.5149, lon: -117.0382, type: 'Edificio' },
+};
+const BAJA_CENTER = [30.8, -115.9];
+// key = "device_id·sensor_type" -> { t:[], x:[], y:[], z:[], lastT, lastRs }
+const realBuffers = new Map();
+const realLastTrigger = new Map();
+const realEvents = [];
+const realDeviceIds = new Set(Object.keys(REAL_DEVICE_INFO));
 const events = [];
 const series = Array.from({length:48},(_,i)=>({ t:String(i).padStart(2,'0'), x:rnd(-3,3), y:rnd(-3,3), z:rnd(-2,2), rms:rnd(.03,.13) }));
 function rnd(min,max,dec=3){ return Number((Math.random()*(max-min)+min).toFixed(dec)); }
@@ -155,8 +178,11 @@ function initMap(){
 }
 function markerHtml(status){ return `<div class="custom-marker ${status}">📡</div>`; }
 function updateMarkers(){
-  // El mapa muestra únicamente nodos ubicados dentro del entorno de Chilpancingo.
-  const visible = filteredNodes().filter(n=>CHILPANCINGO_BOUNDS.contains([n.lat,n.lon]));
+  // En modo simulado el mapa muestra únicamente nodos dentro del entorno de Chilpancingo.
+  // En modo real solo hay 4 estaciones (Baja California), así que se muestran todas.
+  const visible = dataSource==='real'
+    ? filteredNodes()
+    : filteredNodes().filter(n=>CHILPANCINGO_BOUNDS.contains([n.lat,n.lon]));
   clusterGroup.clearLayers(); markers.clear();
   visible.forEach(n=>{
     const icon = L.divIcon({ html:markerHtml(n.status), className:'', iconSize:[42,42], iconAnchor:[21,21] });
@@ -192,7 +218,8 @@ function updateTable(){
   document.querySelectorAll('#nodesTable tr').forEach(tr=>tr.addEventListener('click',()=>{
     selectedId=tr.dataset.id;
     const n=selected();
-    if(CHILPANCINGO_BOUNDS.contains([n.lat,n.lon])) map.setView([n.lat,n.lon],14);
+    if(dataSource==='real') map.setView([n.lat,n.lon],9);
+    else if(CHILPANCINGO_BOUNDS.contains([n.lat,n.lon])) map.setView([n.lat,n.lon],14);
     else map.setView(CHILPANCINGO_CENTER,CHILPANCINGO_ZOOM);
     render(false);
   }));
@@ -209,6 +236,272 @@ function updateEvents(){
   if(events.length===0){ box.innerHTML='<div class="event-item">Sin eventos críticos.</div>'; return; }
   box.innerHTML=events.map(e=>`<div class="event-item ${e.status==='alerta'?'danger':e.status==='sin_conexion'?'gray':''}"><b>${e.time}</b><br>${e.msg}</div>`).join('');
 }
+// ── API real: red y utilidades HTTP ──
+async function httpGetJson(url){
+  try{
+    const res = await fetch(url, { headers:{ Accept:'application/json' } });
+    let json = null;
+    try{ json = await res.json(); }catch{ json = null; }
+    return { status: res.status, json };
+  }catch(err){
+    return { status: 0, json: null, error: err.message };
+  }
+}
+async function fetchRealDeviceList(){
+  const { status, json } = await httpGetJson(`${REAL_API_BASE}/dispositivos`);
+  const list = (status===200 && json && Array.isArray(json.dispositivos)) ? json.dispositivos : [];
+  // Solo comparamos contra dispositivos conocidos: la API no trae GPS, así que un
+  // dispositivo desconocido no tendría dónde ubicarse en el mapa.
+  const known = list.filter(id=>realDeviceIds.has(id));
+  return known.length ? known : Array.from(realDeviceIds);
+}
+async function fetchRealLatest(deviceId, sinceIso){
+  const params = new URLSearchParams({ device_id:deviceId, limit:'1000', orden: sinceIso?'asc':'desc' });
+  if(sinceIso) params.set('fecha_inicio', sinceIso);
+  const { status, json } = await httpGetJson(`${REAL_API_BASE}/registros?${params.toString()}`);
+  return (status===200 && json && Array.isArray(json.registros)) ? json.registros : [];
+}
+async function fetchRealHistory(deviceId, start, end, maxRecords=50000){
+  let out = [], offset = 0;
+  const limit = 1000;
+  for(let page=0; page<Math.ceil(maxRecords/limit); page++){
+    const params = new URLSearchParams({
+      device_id:deviceId, fecha_inicio:start.toISOString(), fecha_fin:end.toISOString(),
+      orden:'asc', limit:String(limit), offset:String(offset)
+    });
+    const { status, json } = await httpGetJson(`${REAL_API_BASE}/registros?${params.toString()}`);
+    if(status!==200 || !json || !Array.isArray(json.registros)) break;
+    out = out.concat(json.registros);
+    if(json.registros.length < limit) break;
+    offset += json.registros.length;
+  }
+  return out.slice(0, maxRecords);
+}
+
+// ── Frecuencia dominante: DFT directa sobre una rejilla de frecuencias candidatas ──
+// (evita depender de una librería de FFT; con pocos cientos de muestras es instantáneo).
+function estimateDominantFrequency(t, vals, fMin=0.5, fMax=20, steps=48){
+  const idx = []; for(let i=0;i<vals.length;i++) if(Number.isFinite(vals[i])) idx.push(i);
+  if(idx.length < 8) return 0;
+  const t0 = t[idx[0]];
+  const mean = idx.reduce((a,i)=>a+vals[i],0)/idx.length;
+  let bestF=0, bestPow=-1;
+  for(let s=0;s<=steps;s++){
+    const f = fMin + (fMax-fMin)*s/steps;
+    let re=0, im=0;
+    for(const i of idx){
+      const ang = 2*Math.PI*f*(t[i]-t0);
+      const v = vals[i]-mean;
+      re += v*Math.cos(ang); im -= v*Math.sin(ang);
+    }
+    const pow = re*re+im*im;
+    if(pow>bestPow){ bestPow=pow; bestF=f; }
+  }
+  return bestF;
+}
+function computeRms(vals){
+  const finite = vals.filter(Number.isFinite);
+  if(!finite.length) return 0;
+  return Math.sqrt(finite.reduce((a,v)=>a+v*v,0)/finite.length);
+}
+
+// ── Detección STA/LTA sobre datos reales (mismo algoritmo que el visor de escritorio) ──
+function staLtaScan(key, t, x, y, z, staS, ltaS, ratioOn, cooldownS=5){
+  if(t.length < 8) return [];
+  const dts = []; for(let i=1;i<t.length;i++) dts.push(t[i]-t[i-1]);
+  dts.sort((a,b)=>a-b);
+  const dt = dts[Math.floor(dts.length/2)] || 0;
+  if(!(dt>0)) return [];
+  const n = Math.floor((t[t.length-1]-t[0])/dt);
+  if(n < 8) return [];
+  const energy = new Array(n);
+  let j = 0;
+  for(let k=0;k<n;k++){
+    const tk = t[0] + k*dt;
+    while(j < t.length-2 && t[j+1] < tk) j++;
+    const t0v=t[j], t1v=t[Math.min(j+1,t.length-1)];
+    const frac = t1v>t0v ? (tk-t0v)/(t1v-t0v) : 0;
+    const interp = (arr)=>{
+      const a = Number.isFinite(arr[j]) ? arr[j] : 0;
+      const bRaw = arr[Math.min(j+1,arr.length-1)];
+      const b = Number.isFinite(bRaw) ? bRaw : a;
+      return a + (b-a)*frac;
+    };
+    const xv=interp(x), yv=interp(y), zv=interp(z);
+    energy[k] = xv*xv+yv*yv+zv*zv;
+  }
+  const nSta = Math.max(1, Math.round(staS/dt));
+  const nLta = Math.max(nSta+1, Math.round(ltaS/dt));
+  if(nLta >= energy.length) return [];
+  const cum = [0]; for(let k=0;k<energy.length;k++) cum.push(cum[k]+energy[k]);
+  const moving = (nn)=>{ const out=new Array(energy.length).fill(NaN); for(let k=nn-1;k<energy.length;k++) out[k]=(cum[k+1]-cum[k+1-nn])/nn; return out; };
+  const sta = moving(nSta), lta = moving(nLta);
+  let lastT = realLastTrigger.get(key) ?? -Infinity;
+  const events = [];
+  for(let i=1;i<energy.length;i++){
+    if(!Number.isFinite(sta[i])||!Number.isFinite(lta[i])||!Number.isFinite(sta[i-1])||!Number.isFinite(lta[i-1])) continue;
+    const ti = t[0] + i*dt;
+    if(ti<=lastT || (ti-lastT)<cooldownS) continue;
+    const rPrev = lta[i-1]>1e-12 ? sta[i-1]/lta[i-1] : 0;
+    const rNow = lta[i]>1e-12 ? sta[i]/lta[i] : 0;
+    if(rPrev < ratioOn && ratioOn <= rNow){ events.push({key,t:ti,ratio:rNow}); lastT=ti; }
+  }
+  if(events.length) realLastTrigger.set(key,lastT);
+  return events;
+}
+function pushRealEvent(ev){
+  realEvents.unshift(ev); realEvents.splice(80);
+  const box = $('realEventsList');
+  if(!box) return;
+  const [devId,sensor] = ev.key.split('·');
+  const when = new Date(ev.t*1000).toISOString().replace('T',' ').slice(0,19);
+  const item = document.createElement('div');
+  item.className = 'event-item danger';
+  item.innerHTML = `<b>${when} UTC</b><br>${(REAL_DEVICE_INFO[devId]||{}).name || devId} · ${sensor} · razón ${ev.ratio.toFixed(1)}`;
+  box.prepend(item);
+  while(box.children.length>80) box.removeChild(box.lastChild);
+}
+
+// ── Ciclo de datos reales: arma objetos "nodo" con el mismo formato que usa el resto de la UI ──
+async function realTick(){
+  if(realPolling) return;
+  realPolling = true;
+  try{
+    const deviceIds = Array.from(realDeviceIds);
+    const results = await Promise.all(deviceIds.map(async devId=>{
+      const key0 = Object.keys(REAL_DEVICE_INFO).includes(devId) ? devId : null;
+      if(!key0) return null;
+      const anyBufKey = `${devId}·mpu9250_1`;
+      const bootstrapped = realBuffers.has(anyBufKey) || Array.from(realBuffers.keys()).some(k=>k.startsWith(devId+'·'));
+      const since = bootstrapped ? newestIsoForDevice(devId) : null;
+      const recs = await fetchRealLatest(devId, since);
+      return { devId, recs };
+    }));
+    for(const r of results){
+      if(!r) continue;
+      ingestRealRecords(r.devId, r.recs);
+    }
+    nodes = buildRealNodes();
+    setText('realStatus', `Conectado a la API real · ${nodes.length} estaciones · última actualización ${now()}`);
+    render();
+  }catch(err){
+    setText('realStatus', `Error consultando la API real: ${err.message}`);
+  }finally{
+    realPolling = false;
+  }
+}
+function newestIsoForDevice(devId){
+  let best = null, bestT = -Infinity;
+  for(const [key,buf] of realBuffers.entries()){
+    if(!key.startsWith(devId+'·')) continue;
+    if(buf.lastT > bestT){ bestT = buf.lastT; best = buf.lastRs; }
+  }
+  return best;
+}
+function ingestRealRecords(devId, recs){
+  for(const r of recs){
+    if(!r || typeof r!=='object') continue;
+    const rs = r.rs; const tMs = Date.parse(rs);
+    if(!Number.isFinite(tMs)) continue;
+    const tSec = tMs/1000;
+    const sensor = r.sensor_type || 'sensor';
+    const key = `${devId}·${sensor}`;
+    let buf = realBuffers.get(key);
+    if(!buf){ buf = { t:[], x:[], y:[], z:[], lastT:-Infinity, lastRs:null }; realBuffers.set(key,buf); }
+    if(tSec <= buf.lastT) continue;
+    const toNum = v => v===null || v===undefined || v==='' ? NaN : Number(v);
+    buf.t.push(tSec); buf.x.push(toNum(r.x_value)); buf.y.push(toNum(r.y_value)); buf.z.push(toNum(r.z_value));
+    buf.lastT = tSec; buf.lastRs = rs;
+  }
+  // conserva solo los últimos ~10 minutos por sensor, suficiente para RMS/FFT/STA-LTA en vivo
+  const keepFrom = Date.now()/1000 - 600;
+  for(const [key,buf] of realBuffers.entries()){
+    if(!key.startsWith(devId+'·')) continue;
+    let i=0; while(i<buf.t.length && buf.t[i]<keepFrom) i++;
+    if(i>0){ buf.t.splice(0,i); buf.x.splice(0,i); buf.y.splice(0,i); buf.z.splice(0,i); }
+  }
+}
+function buildRealNodes(){
+  const out = [];
+  for(const devId of Object.keys(REAL_DEVICE_INFO)){
+    const info = REAL_DEVICE_INFO[devId];
+    const sensorKeys = Array.from(realBuffers.keys()).filter(k=>k.startsWith(devId+'·'));
+    if(!sensorKeys.length){
+      out.push({ id:devId, name:info.name, type:info.type, state:'Baja California', city:info.city, region:'Noroeste',
+        lat:info.lat, lon:info.lon, site:info.city, battery:100, installed:2025, priority:'Media',
+        rmsX:0, rmsY:0, rmsZ:0, rmsGlobal:0, freqDominante:0, sampleRate:0, satellites:0, gpsFix:false,
+        status:'sin_conexion', lastUpdate:now() });
+      continue;
+    }
+    let rmsX=0,rmsY=0,rmsZ=0,freq=0,sampleRate=0,newestT=-Infinity,newestRs=null,nSamples=0,usedKey=null;
+    for(const key of sensorKeys){
+      const buf = realBuffers.get(key);
+      if(!buf.t.length) continue;
+      if(buf.lastT > newestT){ newestT=buf.lastT; newestRs=buf.lastRs; usedKey=key; }
+    }
+    if(usedKey){
+      const buf = realBuffers.get(usedKey);
+      const tail = 20; // últimos ~20s para RMS/frecuencia, evita que datos viejos dominen
+      let i0=0; while(i0<buf.t.length && buf.t[i0] < buf.t[buf.t.length-1]-tail) i0++;
+      const tt=buf.t.slice(i0), xx=buf.x.slice(i0), yy=buf.y.slice(i0), zz=buf.z.slice(i0);
+      rmsX=computeRms(xx); rmsY=computeRms(yy); rmsZ=computeRms(zz);
+      freq = estimateDominantFrequency(tt, xx);
+      nSamples = tt.length;
+      if(tt.length>1) sampleRate = Math.round((tt.length-1)/(tt[tt.length-1]-tt[0]));
+      // detección de eventos sobre el buffer completo del sensor más activo
+      const evs = staLtaScan(usedKey, buf.t, buf.x, buf.y, buf.z, 1.0, 15.0, 3.5, 5.0);
+      evs.forEach(pushRealEvent);
+    }
+    const rmsGlobal = Number(Math.sqrt(rmsX*rmsX+rmsY*rmsY+rmsZ*rmsZ).toFixed(5));
+    const gapSec = newestT>-Infinity ? (Date.now()/1000 - newestT) : Infinity;
+    let status = 'sin_conexion';
+    if(gapSec < 15){
+      status = rmsGlobal>0.5 ? 'alerta' : rmsGlobal>0.2 ? 'observacion' : 'activo';
+    }
+    out.push({
+      id:devId, name:info.name, type:info.type, state:'Baja California', city:info.city, region:'Noroeste',
+      lat:info.lat, lon:info.lon, site:info.city, battery:100, installed:2025, priority:'Media',
+      rmsX:Number(rmsX.toFixed(5)), rmsY:Number(rmsY.toFixed(5)), rmsZ:Number(rmsZ.toFixed(5)), rmsGlobal,
+      freqDominante:Number(freq.toFixed(2)), sampleRate, satellites:0, gpsFix:false,
+      status, lastUpdate: newestRs ? newestRs.slice(0,19).replace('T',' ') : now(), _gapSec:gapSec, _newestRs:newestRs
+    });
+  }
+  return out;
+}
+
+function setDataSource(source){
+  dataSource = source;
+  const simCard = $('simControlsCard'); const evCard = $('realEventsCard');
+  if(simCard) simCard.style.display = source==='sim' ? '' : 'none';
+  if(evCard) evCard.style.display = source==='real' ? '' : 'none';
+  if(source==='real'){
+    if(timer) clearInterval(timer);
+    map.setMaxBounds(null); map.setMinZoom(4);
+    setText('realStatus','Conectando con la API real…');
+    setText('mapStatus','Mapa: dispositivos reales (Baja California)');
+    fetchRealDeviceList().then(ids=>{
+      ids.forEach(id=>realDeviceIds.add(id));
+      nodes = buildRealNodes();
+      selectedId = nodes[0]?.id || selectedId;
+      map.setView(BAJA_CENTER, 6);
+      render();
+      realTick();
+      if(realTimer) clearInterval(realTimer);
+      realTimer = setInterval(realTick, REAL_POLL_MS);
+    });
+  }else{
+    if(realTimer){ clearInterval(realTimer); realTimer=null; }
+    map.setMaxBounds(CHILPANCINGO_BOUNDS); map.setMinZoom(11);
+    map.setView(CHILPANCINGO_CENTER, CHILPANCINGO_ZOOM);
+    setText('mapStatus','Mapa Chilpancingo activo');
+    setText('realStatus','Modo simulado activo.');
+    nodes = generateNationalNodes();
+    selectedId = 'SHM-MX-001';
+    resetTimer();
+    render();
+  }
+}
+
 function updateRegionCards(){
   const html=Object.keys(regions).map(r=>{
     const group=nodes.filter(n=>n.region===r); const alerts=group.filter(n=>['alerta','observacion','bateria_baja','sin_conexion'].includes(n.status)).length;
@@ -224,6 +517,24 @@ function initCharts(){
   rmsChart=makeChart($('rmsChart'),[{label:'RMS',data:series.map(p=>p.rms),borderWidth:2,pointRadius:0,tension:.35,fill:true}]);
 }
 function updateCharts(){
+  if(dataSource==='real'){
+    const s=selected();
+    const keys = s ? Array.from(realBuffers.keys()).filter(k=>k.startsWith(s.id+'·')) : [];
+    let buf=null, bestT=-Infinity;
+    for(const k of keys){ const b=realBuffers.get(k); if(b.t.length && b.lastT>bestT){ bestT=b.lastT; buf=b; } }
+    const n=48; let labels=[],xs=[],ys=[],zs=[],rmsSeries=[];
+    if(buf && buf.t.length){
+      const from=Math.max(0,buf.t.length-n);
+      for(let i=from;i<buf.t.length;i++){
+        labels.push(new Date(buf.t[i]*1000).toISOString().slice(11,19));
+        xs.push(buf.x[i]); ys.push(buf.y[i]); zs.push(buf.z[i]);
+        rmsSeries.push(Math.sqrt((buf.x[i]||0)**2+(buf.y[i]||0)**2+(buf.z[i]||0)**2));
+      }
+    }
+    accChart.data.labels=labels; accChart.data.datasets[0].data=xs; accChart.data.datasets[1].data=ys; accChart.data.datasets[2].data=zs; accChart.update('none');
+    rmsChart.data.labels=labels; rmsChart.data.datasets[0].data=rmsSeries; rmsChart.update('none');
+    return;
+  }
   const s=selected(); const boost=s.status==='alerta'?2:s.status==='observacion'?1.35:s.status==='sin_conexion'?0.05:1;
   series.push({t:now().slice(3),x:rnd(-3.5*boost,3.5*boost),y:rnd(-3*boost,3*boost),z:rnd(-2*boost,2*boost),rms:s.rmsGlobal}); series.splice(0,Math.max(0,series.length-48));
   accChart.data.labels=series.map(p=>p.t); accChart.data.datasets[0].data=series.map(p=>p.x); accChart.data.datasets[1].data=series.map(p=>p.y); accChart.data.datasets[2].data=series.map(p=>p.z); accChart.update('none');
@@ -374,18 +685,36 @@ function filenameForNode(ext, range=null){
   const end = r.end.toISOString().slice(0,16).replace(/[:T]/g,'-');
   return `${n.id}_datos_${start}_a_${end}.${ext}`;
 }
-function exportSelectedCsv(){
+function realRecordsToRows(recs){
+  return recs.map(r=>({
+    timestamp:r.rs, device_id:r.device_id, sensor_type:r.sensor_type, data_mode:r.data_mode,
+    x_value:r.x_value, y_value:r.y_value, z_value:r.z_value, session_id:r.session_id
+  }));
+}
+async function getSelectedRows(range){
+  const n = selected();
+  if(dataSource==='real'){
+    const recs = await fetchRealHistory(n.id, range.start, range.end);
+    return realRecordsToRows(recs);
+  }
+  return generateSelectedNodeHistory(n, range);
+}
+async function exportSelectedCsv(){
   try{
     const range = getExportRange();
-    const rows = generateSelectedNodeHistory(selected(), range);
+    setText('realStatus', dataSource==='real' ? 'Descargando historial real…' : 'Modo simulado activo.');
+    const rows = await getSelectedRows(range);
+    if(!rows.length){ alert('No hay registros reales en ese rango.'); return; }
     downloadBlob(filenameForNode('csv', range), rowsToCsv(rows), 'text/csv;charset=utf-8');
   }catch(err){ alert(err.message); }
 }
-function exportSelectedExcel(){
+async function exportSelectedExcel(){
   try{
   const n = selected();
   const range = getExportRange();
-  const rows = generateSelectedNodeHistory(n, range);
+  setText('realStatus', dataSource==='real' ? 'Descargando historial real…' : 'Modo simulado activo.');
+  const rows = await getSelectedRows(range);
+  if(!rows.length){ alert('No hay registros reales en ese rango.'); return; }
   if(window.XLSX){
     const wb = XLSX.utils.book_new();
     const wsData = XLSX.utils.json_to_sheet(rows);
@@ -423,12 +752,13 @@ function bind(){
   $('btnExportSelectedCsv').addEventListener('click',exportSelectedCsv);
   $('btnExportSelectedExcel').addEventListener('click',exportSelectedExcel);
   $('btnNationalView').addEventListener('click',()=>map.setView(CHILPANCINGO_CENTER,CHILPANCINGO_ZOOM));
-  $('btnEventPacifico').addEventListener('click',()=>{forcedRegionEvent='Sur-Sureste'; mode='evento'; $('modeSelect').value='evento'; tick(); setTimeout(()=>forcedRegionEvent=null,12000);});
-  $('btnEventCentro').addEventListener('click',()=>{forcedRegionEvent='Centro'; mode='evento'; $('modeSelect').value='evento'; tick(); setTimeout(()=>forcedRegionEvent=null,12000);});
+  $('btnEventPacifico').addEventListener('click',()=>{forcedRegionEvent='Sur-Sureste'; mode='evento'; $('modeSelect').value='evento'; tick(); setTimeout(()=>{forcedRegionEvent=null; mode='campo'; $('modeSelect').value='campo';},12000);});
+  $('btnEventCentro').addEventListener('click',()=>{forcedRegionEvent='Centro'; mode='evento'; $('modeSelect').value='evento'; tick(); setTimeout(()=>{forcedRegionEvent=null; mode='campo'; $('modeSelect').value='campo';},12000);});
   $('speedSelect').addEventListener('change',e=>{speed=Number(e.target.value); resetTimer();});
   $('modeSelect').addEventListener('change',e=>{mode=e.target.value; tick();});
   ['exportStart','exportEnd','exportStep'].forEach(id=>$(id)?.addEventListener('change',updateExportEstimate));
   ['regionFilter','typeFilter','statusFilter'].forEach(id=>$(id).addEventListener('change',()=>render(true)));
+  $('dataSourceSelect')?.addEventListener('change',e=>setDataSource(e.target.value));
 }
 function boot(){ nodes=generateNationalNodes(); initMap(); initCharts(); bind(); initExportRange(); render(); resetTimer(); }
 boot();
