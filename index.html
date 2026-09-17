@@ -21,14 +21,17 @@
     <div class="wrap">
       <div class="brand-row">
         <div class="brand-left">
-          <div class="logo-box"><img src="./assets/fcitec.png" alt="FCITEC-UABC" onerror="this.onerror=null;this.src='./assets/miidt.png'" /></div>
+          <div class="logo-box" id="logoFcitec" data-logo="fcitec" data-text="FCITEC"></div>
           <div>
             <div class="eyebrow">FCITEC · Universidad Autónoma de Baja California · Demostración</div>
             <h1>Red FCITEC-UABC</h1>
             <p>Monitoreo SHM y P-Alert. Tijuana: 10 planteles COBACH con una unidad SHM y un P-Alert cada uno. Guerrero: 10 edificios con una unidad SHM. Las estaciones se colorean según la aceleración que registran.</p>
           </div>
         </div>
-        <img class="partner" src="./assets/uagro.png" alt="UAGro" />
+        <div class="partner-logos">
+          <div class="logo-box small" id="logoUabc" data-logo="uabc" data-text="UABC"></div>
+          <div class="logo-box small" id="logoExtra" data-logo="colaborador" data-text=""></div>
+        </div>
       </div>
 
       <div class="kpis">
@@ -319,6 +322,34 @@
     <b>Unidades:</b> gal = cm/s² (1 g = 981 gal), aceleración dinámica sin gravedad. <b>Epicentros:</b> la red no los calcula; solo se muestran los publicados por fuentes oficiales.</p>
   </footer>
 
+  <script>
+    // Logotipos: pon los archivos en assets/ (fcitec.svg|png, uabc.svg|png, colaborador.svg|png).
+    // Si no existen, se muestra el nombre en texto y la página se ve igual de bien.
+    document.querySelectorAll('.logo-box[data-logo]').forEach((box) => {
+      const base = box.dataset.logo, exts = ['svg', 'png', 'jpg', 'webp'];
+      const text = box.dataset.text;
+      const showText = () => {
+        if (!text) { box.remove(); return; }
+        box.classList.add('mono');
+        box.textContent = text;
+      };
+      let i = 0;
+      const tryNext = () => {
+        if (i >= exts.length) return showText();
+        const img = new Image();
+        img.alt = text || base;
+        img.onload = () => {
+          box.textContent = '';
+          // Un logotipo horizontal (como el de FCITEC) necesita un recuadro más ancho.
+          if (img.naturalWidth / img.naturalHeight > 1.6) box.classList.add('wide');
+          box.appendChild(img);
+        };
+        img.onerror = () => { i++; tryNext(); };
+        img.src = `./assets/${base}.${exts[i]}`;
+      };
+      tryNext();
+    });
+  </script>
   <script src="./sim.js" defer></script>
   <script src="./main.js" defer></script>
 </body>

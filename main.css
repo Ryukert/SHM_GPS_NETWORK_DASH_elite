@@ -252,3 +252,18 @@ i.st.lvl-off{background:#fff;border:2px solid var(--lv-off);box-sizing:border-bo
 #detBox tr[data-id]:hover{background:var(--soft)}
 .off-title{margin:14px 0 6px;font-size:13px;color:var(--blue)}
 .off-list{margin:0;padding-left:18px;font-size:13px;display:grid;gap:3px}
+
+
+/* ── Logotipos institucionales ── */
+.partner-logos{display:flex;align-items:center;gap:10px;flex:none}
+.logo-box.small{width:64px;height:64px;border-radius:12px}
+.logo-box.small img{max-width:54px;max-height:56px}
+.logo-box.mono{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);color:#fff;
+  font:700 15px/1 Inter,system-ui,sans-serif;letter-spacing:.06em;padding:0 12px;width:auto;min-width:62px}
+.logo-box.small.mono{font-size:13px;min-width:56px}
+@media (max-width:640px){.partner-logos{display:none}}
+
+.logo-box.wide{width:auto;min-width:0;padding:6px 12px}
+.logo-box.wide img{max-width:230px;max-height:46px}
+.logo-box.small.wide img{max-width:170px;max-height:40px}
+@media (max-width:640px){.logo-box.wide img{max-width:170px}}
