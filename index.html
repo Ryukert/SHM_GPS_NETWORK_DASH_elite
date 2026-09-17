@@ -104,7 +104,15 @@
     </aside>
 
     <section class="card controls-card wide-full">
-      <div class="section-head"><div><h2>Controles de red nacional</h2><p>Simula expansión, eventos regionales y exportación para conectar después con Supabase/Firebase.</p></div></div>
+      <div class="section-head"><div><h2>Fuente de datos</h2><p>Cambia entre la simulación nacional de demostración y los datos reales de la red sísmica UABC (Baja California).</p></div></div>
+      <div class="controls-grid">
+        <label class="control-field"><span>Fuente</span><select id="dataSourceSelect"><option value="sim" selected>Simulado (demo nacional)</option><option value="real">API real (UABC, Baja California)</option></select></label>
+        <div class="status-line"><span class="dot ok" id="realStatusDot"></span><span id="realStatus">Modo simulado activo.</span></div>
+      </div>
+    </section>
+
+    <section class="card controls-card wide-full" id="simControlsCard">
+      <div class="section-head"><div><h2>Controles de red nacional (simulación)</h2><p>Simula expansión, eventos regionales y exportación para conectar después con Supabase/Firebase.</p></div></div>
       <div class="controls-grid">
         <button class="btn primary" id="btnToggle">Pausar simulación</button>
         <button class="btn" id="btnAddNodes">Agregar 100 nodos</button>
@@ -115,6 +123,11 @@
         <label class="control-field"><span>Velocidad</span><select id="speedSelect"><option value="3500">Lenta</option><option value="1800" selected>Normal</option><option value="800">Rápida</option></select></label>
         <label class="control-field"><span>Modo</span><select id="modeSelect"><option value="campo" selected>Campo nacional</option><option value="laboratorio">Laboratorio</option><option value="evento">Evento vibratorio</option></select></label>
       </div>
+    </section>
+
+    <section class="card chart-card wide" id="realEventsCard" style="display:none">
+      <div class="section-head"><div><h2>Eventos detectados (STA/LTA real)</h2><p>Disparador sismológico calculado sobre los datos reales de cada estación.</p></div></div>
+      <div class="events-box"><div id="realEventsList" class="events-list"><div class="event-item">Sin eventos todavía.</div></div></div>
     </section>
 
     <section class="card chart-card wide">
