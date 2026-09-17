@@ -1,4 +1,4 @@
-# Red SHM + P-Alert — versión SIMULADA
+# Red FCITEC-UABC (SHM + P-Alert) — versión SIMULADA
 
 Demostración del panel de monitoreo con una red simulada. **Ningún dato proviene de sensores reales.**
 
@@ -62,3 +62,30 @@ La atenuación es una relación simple de demostración, no un modelo calibrado 
 - `sim.js`: el simulador. Imita la API Retriever (`/dispositivos`, `/registros`, `/openapi.json`) con el mismo formato de registro que manda la Raspberry.
 - `main.js`: el panel (el mismo análisis que la versión real, más P-Alert, localización y simulador).
 - `main.css`, `index.html`, `assets/`.
+
+
+## Detección por umbral de aceleración
+
+Cada estación se colorea según la **aceleración máxima que registró en los últimos 60 s** (señal unificada, sin gravedad, en gal = cm/s²):
+
+| Color | Rango inicial |
+|---|---|
+| Azul · sin detección | menos de 50 gal |
+| Verde | 50 a 100 gal |
+| Amarillo | 100 a 200 gal |
+| Rojo | 200 gal o más |
+
+Los tres límites se cambian en la tarjeta "Detección por umbral de aceleración" y el navegador los recuerda.
+El panel muestra en qué orden detectó cada estación, su pico y su nivel. Con 3 o más estaciones sobre el umbral se considera **detección de red**.
+
+## Epicentros
+
+La red **no calcula epicentros**. Solo se muestran los publicados por fuentes oficiales y cercanos a la región:
+
+- **USGS (real):** se consulta el catálogo público cada 2 minutos (sismos de M2.5 o más, a menos de 300 km de Tijuana o 400 km de Guerrero, últimas 24 h).
+- **SSN (simulado):** para los sismos del simulador, el reporte aparece 45 s después, con pequeñas diferencias, como llegaría un reporte real.
+- **SSN (real):** su servicio no permite consultas directas desde el navegador; para integrarlo hace falta un proxy en el servidor (como `api/proxy.js` en la versión real).
+
+## Logotipo
+
+Coloca el logotipo de FCITEC en `assets/fcitec.png` y aparecerá en el encabezado. Si no existe, se usa el logotipo actual.

@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Red SHM + P-Alert — VERSIÓN SIMULADA (MIIDT / UAGro)
+// Red FCITEC-UABC (SHM + P-Alert) — VERSIÓN SIMULADA
 //
 // Mismo panel que la versión real, pero los datos salen de sim.js (window.SIM),
 // que imita la API Retriever. No necesita Vercel ni internet para los datos
@@ -12,37 +12,54 @@
 //    Todo el análisis (RMS, PGA, FFT, STA/LTA) se hace sobre esa señal unificada;
 //    los sensores individuales solo se usan para revisar la salud de la unidad.
 //  • Guerrero: 10 edificios con SHM.
-//  • Los P-Alert y SHM que detectan la onda P se asocian en un "evento de red":
-//    con 3 o más sitios se estima epicentro, hora de origen y magnitud, y se
-//    calcula cuánto falta para que la onda S llegue a cada sitio.
+//  • Detección por UMBRAL DE ACELERACIÓN (gal = cm/s²): desde 50 gal una estación
+//    "detecta" y se colorea en verde, amarillo o rojo según los rangos definidos.
+//  • La red NO calcula epicentros. Solo se muestran epicentros de fuentes oficiales
+//    (SSN, USGS) cuando el sismo es cercano a la región. En la simulación, el reporte
+//    "oficial" se genera con retraso, como llegaría de esas agencias.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const CFG = {
   POLL_LIVE_MS: 2000,
-  POLL_PALERT_MS: 1000,       // P-Alert: más rápido, cada segundo cuenta para la alerta
+  POLL_PALERT_MS: 1000,
   POLL_OFFLINE_MS: 30000,
   MAX_PAGES_PER_TICK: 6,
   OFFLINE_AFTER_S: 30,
   BUFFER_S: 120,
   STATS_WIN_S: 10,
   GAP_RESET_S: 1.0,
-  COINCIDENCE_S: 2.0,
-  PGA_WATCH_MG: 10,
-  PGA_ALERT_MG: 50,
-  PALERT_WATCH_INT: 3,
-  PALERT_ALERT_INT: 4,
   COMPLETENESS_WARN: 0.8,
   FFT_N: 2048,
-  NET_MIN_SITES: 3,
+  HOLD_S: 60,                 // el color de una estación se mantiene 60 s tras su pico
+  GROUP_WINDOW_S: 90,         // detecciones dentro de 90 s en la misma zona = mismo sismo
+  NET_MIN_STATIONS: 3,        // detección de red: 3 o más estaciones sobre el umbral
+  OFFICIAL_DELAY_S: 45,       // retraso del reporte oficial simulado
+  USGS_REFRESH_S: 120,
 };
+const G2GAL = 981;            // 1 g = 981 gal (cm/s²)
+
+// Umbrales de aceleración (gal). Se pueden cambiar en la página y se recuerdan.
+const ACC_DEFAULT = { det: 50, yellow: 100, red: 200 };
+const ACC = (() => {
+  try { return { ...ACC_DEFAULT, ...JSON.parse(localStorage.getItem('fcitec_acc') || '{}') }; } catch { return { ...ACC_DEFAULT }; }
+})();
+const saveAcc = () => { try { localStorage.setItem('fcitec_acc', JSON.stringify(ACC)); } catch { /* sin almacenamiento */ } };
+const LEVELS = {
+  off: { label: 'Sin conexión', cls: 'lvl-off' },
+  none: { label: 'Sin detección', cls: 'lvl-none' },
+  verde: { label: 'Verde', cls: 'lvl-verde' },
+  amarillo: { label: 'Amarillo', cls: 'lvl-amarillo' },
+  rojo: { label: 'Rojo', cls: 'lvl-rojo' },
+};
+const levelOf = (gal) => (!(gal >= ACC.det) ? 'none' : gal >= ACC.red ? 'rojo' : gal >= ACC.yellow ? 'amarillo' : 'verde');
+const levelRange = (lv) => ({ none: `< ${ACC.det} gal`, verde: `${ACC.det}–${ACC.yellow} gal`, amarillo: `${ACC.yellow}–${ACC.red} gal`, rojo: `≥ ${ACC.red} gal`, off: '' }[lv]);
 
 const NET = {
-  tijuana: { label: 'Tijuana', window: 35, span: 1.6, step: 0.02, ref: { name: 'Tijuana', lat: 32.5149, lon: -117.0382 }, view: [[32.43, -117.16], [32.58, -116.8]] },
-  guerrero: { label: 'Guerrero', window: 90, span: 2.8, step: 0.04, ref: { name: 'Chilpancingo', lat: 17.551, lon: -99.501 }, view: [[16.6, -101.8], [18.7, -98.2]] },
+  tijuana: { label: 'Tijuana', view: [[32.43, -117.16], [32.58, -116.8]], center: [32.5149, -117.0382], radiusKm: 300 },
+  guerrero: { label: 'Guerrero', view: [[16.6, -101.8], [18.7, -98.2]], center: [17.55, -99.8], radiusKm: 400 },
 };
 
 const STATION_INFO = Object.fromEntries(SIM.stations.map((s) => [s.id, s]));
-const STATUS_LABEL = { activo: 'Activa', observacion: 'Observación', alerta: 'Alerta', sin_conexion: 'Sin conexión' };
 const AXIS_COLORS = { x: '#1f6fb2', y: '#b23a48', z: '#2c8657' };
 const SENSOR_COLORS = ['#7aa6d6', '#e79a62', '#6cbfb3', '#a78bfa', '#f472b6'];
 const INT_THRESH = [0.8, 2.5, 8, 25, 80, 250, 400];   // gal → intensidad 1..7 (escala CWA de P-Alert)
@@ -60,7 +77,7 @@ const intensity = (gal) => INT_THRESH.filter((t) => gal >= t).length;
 function lowerBound(arr, v) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; }
 function upperBound(arr, v) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] <= v) lo = m + 1; else hi = m; } return lo; }
 
-function fmtMg(v, digits = 2) { return Number.isFinite(v) ? `${v.toFixed(v >= 100 ? 0 : digits)} mg` : '–'; }
+function fmtGal(v, digits = 1) { return Number.isFinite(v) ? `${v.toFixed(v >= 100 ? 0 : digits)} gal` : '–'; }
 function fmtPct(v) { return Number.isFinite(v) ? `${Math.round(v * 100)} %` : '–'; }
 function fmtAgo(sec) {
   if (!Number.isFinite(sec)) return 'nunca';
@@ -78,13 +95,6 @@ function fmtClock(epoch, withDate = false) {
     ? d.toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
     : d.toLocaleTimeString('es-MX', { hour12: false });
 }
-function bearingText(from, to) {
-  const y = Math.sin(((to.lon - from.lon) * Math.PI) / 180) * Math.cos((to.lat * Math.PI) / 180);
-  const x = Math.cos((from.lat * Math.PI) / 180) * Math.sin((to.lat * Math.PI) / 180) - Math.sin((from.lat * Math.PI) / 180) * Math.cos((to.lat * Math.PI) / 180) * Math.cos(((to.lon - from.lon) * Math.PI) / 180);
-  const deg = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-  return ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'][Math.round(deg / 45) % 8];
-}
-
 // ───────────────────────── "API" simulada ─────────────────────────
 const api = { pageLimit: 1000, hasOrden: true, ok: true, lastError: null, requests: [] };
 const HAS_TZ = /(Z|[+-]\d{2}:?\d{2})$/i;
@@ -115,11 +125,12 @@ async function loadOpenApi() {
 // ───────────────────────── estado ─────────────────────────
 const stations = new Map();
 const allEvents = [];
-const netEvents = [];
+const accGroups = [];          // detecciones por umbral agrupadas por sismo
+const officialReports = [];    // epicentros oficiales (USGS real + SSN simulado)
 let selectedId = null;
 let selectedMode = 'unit';
 let paused = false, pausedEnd = null;
-let eewNet = 'tijuana', eewNetManual = false;
+let detNet = 'tijuana', detNetManual = false;
 
 function ensureStation(id) {
   if (stations.has(id)) return stations.get(id);
@@ -130,7 +141,8 @@ function ensureStation(id) {
     fused: newBuf(), pending: new Map(),
     newestT: -Infinity, newestRs: null, lastRecord: null, cursorRs: null,
     bootstrapped: false, polling: false, nextPollAt: 0, behind: false, reloadNow: false, error: null,
-    lagHist: [], events: [], stats: null, spec: null, lastNetTrig: -Infinity,
+    lagHist: [], events: [], stats: null, spec: null,
+    acc: { active: false, tFirst: 0, lastAbove: 0, peak: 0, peakT: 0, group: null }, secMax: [],
   };
   stations.set(id, st);
   return st;
@@ -296,8 +308,8 @@ function dspStep(st, d, t, x, y, z) {
   const ratio = warm && d.lta > 1e-14 ? d.sta / d.lta : 0;
   if (warm && !d.trig && ratio >= trig.on) {
     d.trig = true; d.start = t; d.peakRatio = ratio; d.peakMg = 0;
-    onTriggerStart(st, t);
   }
+  if (d.n > fs * 5) accTrack(st, t, Math.sqrt(e) * G2GAL);
   if (d.trig) {
     d.peakRatio = Math.max(d.peakRatio, ratio);
     d.peakMg = Math.max(d.peakMg, Math.sqrt(e) * 1000);
@@ -310,104 +322,52 @@ function dspStep(st, d, t, x, y, z) {
 }
 function registerTrigger(st, tr) {
   const ev = { station: st.id, ...tr };
-  const prev = st.events.find((e) => Math.abs(e.start - tr.start) < 5);
-  if (prev && prev.netEvent) ev.netEvent = prev.netEvent;
-  if (prev) st.events.splice(st.events.indexOf(prev), 1);
   st.events.unshift(ev);
   st.events.splice(100);
   allEvents.unshift(ev);
   allEvents.splice(300);
 }
-// Una detección es confirmada cuando la misma onda la detectan 3 o más sitios de la red.
-const isConfirmed = (ev) => !!ev.netEvent;
 
-// ───────────────────────── red: asociación, localización, magnitud ─────────────────────────
-function onTriggerStart(st, t) {
-  if (t - st.lastNetTrig < 45) return;          // una detección por estación por sismo
-  st.lastNetTrig = t;
-  const cfg = NET[st.network];
-  let ev = netEvents.find((e) => e.net === st.network && t >= e.firstT - cfg.window && t <= e.firstT + cfg.window);
-  if (!ev) {
-    ev = { id: `net-${Math.round(t * 1000)}`, net: st.network, firstT: t, picks: new Map(), est: null, detectedAt: nowS() };
-    netEvents.unshift(ev);
-    netEvents.splice(40);
-  }
-  if (!ev.picks.has(st.id)) ev.picks.set(st.id, { t });
-  ev.firstT = Math.min(ev.firstT, t);
-  ev.dirty = true;
-}
-function groundPga(st, t0, t1) {
-  const b = st.fused;
-  if (!b.t.length) return NaN;
-  const a0 = lowerBound(b.t, t0 - 4), a1 = lowerBound(b.t, t0), z = upperBound(b.t, t1);
-  if (z <= a1) return NaN;
-  let mx = 0, my = 0, mz = 0, c = 0;
-  for (let i = a0; i < a1; i++) { mx += b.x[i]; my += b.y[i]; mz += b.z[i]; c++; }
-  if (!c) { mx = b.x[a1]; my = b.y[a1]; mz = b.z[a1]; c = 1; } else { mx /= c; my /= c; mz /= c; }
-  let pk = 0;
-  for (let i = a1; i < z; i++) pk = Math.max(pk, Math.hypot(b.x[i] - mx, b.y[i] - my, b.z[i] - mz));
-  return pk * 981;
-}
-function locate(ev) {
-  const cfg = NET[ev.net];
-  const bySite = new Map();
-  for (const [id, p] of ev.picks) {
-    const st = stations.get(id);
-    if (!st) continue;
-    const prev = bySite.get(st.site);
-    if (!prev || p.t < prev.t) bySite.set(st.site, { st, t: p.t });
-  }
-  const picks = [...bySite.values()];
-  ev.nSites = picks.length;
-  if (picks.length < CFG.NET_MIN_SITES) return;
-  const cLat = picks.reduce((p, x) => p + x.st.lat, 0) / picks.length;
-  const cLon = picks.reduce((p, x) => p + x.st.lon, 0) / picks.length;
-  const depth = ev.net === 'guerrero' ? 20 : 10;
-  const test = (lat, lon) => {
-    const o = picks.map((p) => p.t - Math.hypot(SIM.distKm(lat, lon, p.st.lat, p.st.lon), depth) / SIM.VP);
-    const t0 = median(o);
-    const rms = Math.sqrt(o.reduce((s, v) => s + (v - t0) ** 2, 0) / o.length);
-    return { lat, lon, t0, rms };
-  };
-  let best = null;
-  const coarse = cfg.step * 4;
-  for (let la = cLat - cfg.span; la <= cLat + cfg.span; la += coarse)
-    for (let lo = cLon - cfg.span; lo <= cLon + cfg.span; lo += coarse) { const r = test(la, lo); if (!best || r.rms < best.rms) best = r; }
-  const fine = best;
-  for (let la = fine.lat - coarse; la <= fine.lat + coarse; la += cfg.step)
-    for (let lo = fine.lon - coarse; lo <= fine.lon + coarse; lo += cfg.step) { const r = test(la, lo); if (r.rms < best.rms) best = r; }
+// ───────────────────────── detección por umbral de aceleración ─────────────────────────
+// Aceleración dinámica (sin gravedad) de la señal unificada, en gal.
+function accTrack(st, t, gal) {
+  const sec = Math.floor(t);
+  const last = st.secMax[st.secMax.length - 1];
+  if (last && last[0] === sec) last[1] = Math.max(last[1], gal); else st.secMax.push([sec, gal]);
+  while (st.secMax.length && st.secMax[0][0] < sec - CFG.BUFFER_S) st.secMax.shift();
 
-  // Magnitud: log10(PGA) = 0.5 M − 1.5 log10(R) + 1.25 invertida en cada sitio.
-  const mags = [];
-  // En Tijuana la magnitud se calcula con los P-Alert (en el suelo): el SHM está dentro
-  // del edificio y la estructura amplifica el movimiento.
-  const free = picks.filter((p) => p.st.kind === 'palert');
-  for (const p of free.length >= 2 ? free : picks) {
-    const R = Math.hypot(SIM.distKm(best.lat, best.lon, p.st.lat, p.st.lon), depth);
-    const gal = groundPga(p.st, p.t, p.t + 40);
-    if (Number.isFinite(gal) && gal > 0.5) mags.push((Math.log10(gal) + 1.5 * Math.log10(Math.max(R, 5)) - 1.25) / 0.5);
-  }
-  const M = median(mags);
-  const truth = SIM.quakes.filter((q) => q.network === ev.net).map((q) => ({ q, dt: Math.abs(q.t0 - best.t0) })).filter((x) => x.dt < 25).sort((a, b) => a.dt - b.dt)[0]?.q || null;
-  ev.est = { ...best, depth, M: Number.isFinite(M) ? M : null, updatedAt: nowS() };
-  ev.truth = truth;
-  if (truth) truth.detection = ev;
-  // Marcar los disparos P-Alert de este evento como confirmados por la red
-  for (const [id, p] of ev.picks) { const st = stations.get(id); if (st) st.netPick = { ev: ev.id, t: p.t }; for (const e of st?.events || []) if (Math.abs(e.start - p.t) < 5) e.netEvent = ev.id; }
-  ev.dirty = false;
-}
-function updateNetwork() {
-  for (const ev of netEvents) {
-    const age = nowS() - ev.firstT;
-    if (age > 240) continue;
-    if (ev.dirty || age < 90) locate(ev);
+  const a = st.acc;
+  if (gal >= ACC.det) {
+    if (!a.active) {
+      a.active = true; a.tFirst = t; a.peak = 0;
+      a.group = joinGroup(st, t);
+    }
+    a.lastAbove = t;
+    if (gal > a.peak) { a.peak = gal; a.peakT = t; }
+    const m = a.group.stations.get(st.id);
+    if (gal > m.peak) { m.peak = gal; m.peakT = t; }
+    a.group.peak = Math.max(a.group.peak, gal);
+  } else if (a.active && t - a.lastAbove > 20) {
+    a.active = false;
   }
 }
-function siteList(net) {
-  const m = new Map();
-  for (const st of stations.values()) if (st.network === net && !m.has(st.site)) m.set(st.site, { name: st.siteName, lat: st.lat, lon: st.lon });
-  return [...m.values()];
+function joinGroup(st, t) {
+  let g = accGroups.find((x) => x.net === st.network && t >= x.start - 30 && t <= x.start + CFG.GROUP_WINDOW_S);
+  if (!g) {
+    g = { id: `g-${st.network}-${Math.round(t * 1000)}`, net: st.network, start: t, stations: new Map(), peak: 0, detectedAt: nowS() };
+    accGroups.unshift(g);
+    accGroups.splice(50);
+  }
+  g.start = Math.min(g.start, t);
+  if (!g.stations.has(st.id)) g.stations.set(st.id, { tFirst: t, peak: 0, peakT: t });
+  return g;
 }
+const holdPeak = (st, tEnd) => st.secMax.reduce((m, [sec, v]) => (sec >= tEnd - CFG.HOLD_S ? Math.max(m, v) : m), 0);
+// Una detección STA/LTA se confirma si en ese momento 3 o más estaciones superaron el umbral.
+const isConfirmed = (ev) => {
+  const st = stations.get(ev.station);
+  return accGroups.some((g) => g.net === st?.network && g.stations.size >= CFG.NET_MIN_STATIONS && Math.abs(g.start - ev.start) < CFG.GROUP_WINDOW_S);
+};
 
 // ───────────────────────── sondeo ─────────────────────────
 async function pollStation(st) {
@@ -532,45 +492,34 @@ function stationStats(st) {
     triggered: st.fused.d.trig, reasons: [],
   };
   s.intensity = Number.isFinite(s.pgaGal) ? intensity(s.pgaGal) : NaN;
-  const netConfirmed = st.netPick && nowS() - st.netPick.t < 60;
+  s.holdGal = Number.isFinite(st.newestT) ? holdPeak(st, st.newestT) : NaN;
+  s.health = 'ok';
 
   if (!Number.isFinite(st.newestT)) {
-    s.status = 'sin_conexion';
+    s.level = 'off';
     s.reasons.push(['off', st.bootstrapped || st.nextPollAt ? 'No hay datos de esta estación.' : 'Consultando…']);
   } else if (!s.online) {
-    s.status = 'sin_conexion';
+    s.level = 'off';
     s.reasons.push(['off', `No llegan datos nuevos. Último dato ${fmtAgo(lag)}.`]);
   } else {
-    s.status = 'activo';
-    if (st.kind === 'palert') {
-      if (s.intensity >= CFG.PALERT_ALERT_INT) { s.status = 'alerta'; s.reasons.push(['bad', `Intensidad ${INT_TEXT[s.intensity]} (${s.pgaGal.toFixed(1)} gal).`]); }
-      else if (s.intensity >= CFG.PALERT_WATCH_INT) { s.status = 'observacion'; s.reasons.push(['warn', `Intensidad ${INT_TEXT[s.intensity]} (${s.pgaGal.toFixed(1)} gal).`]); }
-      if (s.triggered) { if (s.status === 'activo') s.status = 'observacion'; s.reasons.push(['warn', 'Detectó una onda sísmica (STA/LTA activo).']); }
-    } else {
-      if (s.pgaMg >= CFG.PGA_ALERT_MG) { s.status = 'alerta'; s.reasons.push(['bad', `Pico de ${fmtMg(s.pgaMg, 1)} en la estructura (umbral ${CFG.PGA_ALERT_MG} mg).`]); }
-      else if (s.pgaMg >= CFG.PGA_WATCH_MG) { s.status = 'observacion'; s.reasons.push(['warn', `Vibración elevada: pico de ${fmtMg(s.pgaMg, 1)}.`]); }
-      if (s.triggered && s.status === 'activo') { s.status = 'observacion'; s.reasons.push(['warn', 'La unidad detectó un posible evento (STA/LTA activo).']); }
+    s.level = levelOf(s.holdGal);
+    if (s.level !== 'none') {
+      const cls = s.level === 'rojo' ? 'bad' : 'warn';
+      s.reasons.push([cls, `Detección: pico de ${fmtGal(s.holdGal)} en los últimos ${CFG.HOLD_S} s (nivel ${LEVELS[s.level].label.toLowerCase()}, ${levelRange(s.level)}).`]);
     }
-    if (netConfirmed) { if (s.status !== 'alerta') s.status = 'alerta'; s.reasons.unshift(['bad', 'Sismo confirmado por la red (3 o más sitios).']); }
     if (st.kind === 'shm') {
       const cons = sensors.filter(([, x]) => x.online && x.cons).map(([n, x]) => [n, x.cons]);
       const ref = median(cons.map(([, c]) => c.dynMg));
       for (const [n, c] of cons) {
-        if (c.exclPct > 0.05) s.reasons.push(['warn', `El sensor ${n} no coincide con los otros dos y se descarta en el ${fmtPct(c.exclPct)} de los ciclos.`]);
-        else if (c.offsetMg > FUSE_REJECT_MG) s.reasons.push(['warn', `El sensor ${n} se aparta ${c.offsetMg.toFixed(0)} mg de los otros (posible descalibración o falla). Se compensa en la señal unificada.`]);
-        else if (cons.length >= 3 && c.dynMg > Math.max(0.8, 3 * ref)) s.reasons.push(['warn', `El sensor ${n} tiene más ruido que los otros (${c.dynMg.toFixed(2)} mg).`]);
+        if (c.exclPct > 0.05) s.reasons.push(['warn', `El sensor interno ${n} no coincide con los otros dos y se descarta en el ${fmtPct(c.exclPct)} de los ciclos.`]);
+        else if (c.offsetMg > FUSE_REJECT_MG) s.reasons.push(['warn', `El sensor interno ${n} se aparta ${fmtGal(c.offsetMg * 0.981)} de los otros (posible descalibración o falla). Se compensa en la señal unificada.`]);
+        else if (cons.length >= 3 && c.dynMg > Math.max(0.8, 3 * ref)) s.reasons.push(['warn', `El sensor interno ${n} tiene más ruido que los otros.`]);
       }
-      if (s.reasons.some(([, t]) => t.startsWith('El sensor')) && s.status === 'activo') s.status = 'observacion';
     }
-    if (s.comp < CFG.COMPLETENESS_WARN) {
-      if (s.status === 'activo') s.status = 'observacion';
-      s.reasons.push(['warn', `Llega solo el ${fmtPct(s.comp)} de las muestras: se pierden datos en el envío.`]);
-    }
-    if (s.expected && s.reporting < s.expected) {
-      if (s.status === 'activo') s.status = 'observacion';
-      s.reasons.push(['warn', `Reportan ${s.reporting} de ${s.expected} sensores internos; la unidad sigue midiendo con los demás.`]);
-    }
-    if (!s.reasons.length) s.reasons.push(['ok', 'Todo en orden: datos completos y vibración normal.']);
+    if (s.comp < CFG.COMPLETENESS_WARN) s.reasons.push(['warn', `Llega solo el ${fmtPct(s.comp)} de las muestras: se pierden datos en el envío.`]);
+    if (s.expected && s.reporting < s.expected) s.reasons.push(['warn', `Reportan ${s.reporting} de ${s.expected} sensores internos; la unidad sigue midiendo con los demás.`]);
+    if (s.reasons.some(([k, t]) => k === 'warn' && !t.startsWith('Detección'))) s.health = 'warn';
+    if (!s.reasons.length) s.reasons.push(['ok', `Sin detección: aceleración por debajo de ${ACC.det} gal y datos completos.`]);
   }
   st.stats = s;
   return s;
@@ -623,7 +572,7 @@ function spectrum(b, tEnd) {
     for (let i = 0; i < N; i++) re[i] = (src[i0 + i] - m) * win[i];
     fft(re, im);
     const amp = new Array(N / 2 - 1);
-    for (let k = 1; k < N / 2; k++) { amp[k - 1] = ((2 * Math.hypot(re[k], im[k])) / wSum) * 1000; total[k - 1] += amp[k - 1] ** 2; }
+    for (let k = 1; k < N / 2; k++) { amp[k - 1] = ((2 * Math.hypot(re[k], im[k])) / wSum) * G2GAL; total[k - 1] += amp[k - 1] ** 2; }
     out.amp[axis] = amp;
   }
   let best = -1, bestK = -1;
@@ -650,8 +599,8 @@ function baseOptions(xTitle, yTitle) {
 function initCharts() {
   Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   Chart.defaults.color = '#5b6b7f';
-  signalChart = new Chart($('signalChart'), { type: 'line', data: { datasets: [] }, options: baseOptions('segundos', 'aceleración (mg)') });
-  specChart = new Chart($('specChart'), { type: 'line', data: { datasets: [] }, options: baseOptions('frecuencia (Hz)', 'amplitud (mg)') });
+  signalChart = new Chart($('signalChart'), { type: 'line', data: { datasets: [] }, options: baseOptions('segundos', 'aceleración (gal)') });
+  specChart = new Chart($('specChart'), { type: 'line', data: { datasets: [] }, options: baseOptions('frecuencia (Hz)', 'amplitud (gal)') });
   const so = baseOptions('segundos', 'STA / LTA');
   so.scales.y.min = 0;
   staltaChart = new Chart($('staltaChart'), { type: 'line', data: { datasets: [] }, options: so });
@@ -670,7 +619,7 @@ function windowSeries(b, key, t0, t1, tRef, buckets, center) {
   let mean = 0;
   if (center) { for (let i = i0; i < i1; i++) mean += src[i]; mean /= n; }
   const out = [];
-  const push = (t, v) => out.push({ x: t - tRef, y: (v - mean) * 1000 });
+  const push = (t, v) => out.push({ x: t - tRef, y: (v - mean) * G2GAL });
   if (n <= buckets * 2) {
     for (let i = i0; i < i1; i++) {
       if (i > i0 && b.t[i] - b.t[i - 1] > 0.5) out.push({ x: b.t[i - 1] - tRef + 0.01, y: null });
@@ -731,7 +680,15 @@ function renderSignal() {
   signalChart.data.datasets = datasets;
   signalChart.options.scales.x.min = -win;
   signalChart.options.scales.x.max = 0;
-  signalChart.options.scales.y.title.text = center ? 'aceleración sin gravedad (mg)' : 'aceleración (mg)';
+  signalChart.options.scales.y.title.text = center ? 'aceleración sin gravedad (gal = cm/s²)' : 'aceleración (gal = cm/s²)';
+  // Líneas de umbral (solo tienen sentido sin la gravedad).
+  if (center && selectedMode !== 'cmp') {
+    for (const [lvl, v, color] of [['det', ACC.det, '#16a34a'], ['yellow', ACC.yellow, '#ca8a04'], ['red', ACC.red, '#dc2626']]) {
+      for (const sign of [1, -1]) signalChart.data.datasets.push({ label: sign > 0 ? `${v} gal` : '', borderColor: color, borderDash: [5, 5], borderWidth: 1, data: [{ x: -win, y: sign * v }, { x: 0, y: sign * v }], _thr: lvl });
+    }
+    signalChart.options.plugins.legend.labels.filter = (item) => item.text !== '';
+    signalChart.update('none');
+  }
   signalChart.update('none');
   $('signalEmpty').hidden = hasData;
   if (!hasData) setText('signalEmpty', Number.isFinite(st.newestT) ? 'Sin muestras en esta ventana.' : 'Esta estación no tiene datos.');
@@ -766,7 +723,7 @@ function renderAnalysis() {
   specChart.update('none');
   $('specEmpty').hidden = !!sp;
   st.spec = spectrum(st.fused, tEnd);
-  setText('specHint', sp ? `Pico en ${sp.dom.toFixed(2)} Hz · ${sp.N} muestras (${(sp.N / sp.fsEff).toFixed(1)} s) · resolución ${(sp.fsEff / sp.N).toFixed(3)} Hz${st.kind === 'shm' ? ` · modo del edificio ≈ ${st.f0} Hz` : ''}` : 'FFT con ventana Hann de la señal unificada.');
+  setText('specHint', sp ? `Pico en ${sp.dom.toFixed(2)} Hz (${fmtGal(sp.domAmp, 2)}) · ${sp.N} muestras (${(sp.N / sp.fsEff).toFixed(1)} s) · resolución ${(sp.fsEff / sp.N).toFixed(3)} Hz${st.kind === 'shm' ? ` · modo del edificio ≈ ${st.f0} Hz` : ''}` : 'FFT con ventana Hann de la señal unificada.');
 
   // STA/LTA: una sola curva, la de la unidad.
   const d = st.fused.d;
@@ -801,8 +758,7 @@ function renderAnalysis() {
 // ───────────────────────── mapa ─────────────────────────
 let map;
 const markers = new Map();
-const quakeLayers = new Map();
-const estLayers = new Map();
+const officialLayers = new Map();
 
 function initMap() {
   map = L.map('map', { minZoom: 3 }).setView([23.6, -106], 5);
@@ -814,13 +770,14 @@ function fitAll() {
   if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40] });
 }
 function passesFilter(st) {
-  const net = $('fNet').value, kind = $('fKind').value, status = $('fStatus').value;
-  return (!net || st.network === net) && (!kind || st.kind === kind) && (!status || st.stats?.status === status);
+  const net = $('fNet').value, kind = $('fKind').value, level = $('fStatus').value;
+  return (!net || st.network === net) && (!kind || st.kind === kind) && (!level || st.stats?.level === level);
 }
 function renderMap() {
   for (const st of stations.values()) {
-    const status = st.stats?.status || 'sin_conexion';
-    const cls = `marker ${status} ${st.kind}${st.id === selectedId ? ' selected' : ''}`;
+    const s = st.stats;
+    const level = s?.level || 'off';
+    const cls = `marker ${LEVELS[level].cls} ${st.kind}${st.id === selectedId ? ' selected' : ''}`;
     let m = markers.get(st.id);
     if (!m) {
       m = L.marker([st.lat, st.lon], { title: st.name, keyboard: true });
@@ -835,76 +792,99 @@ function renderMap() {
       // En el mismo plantel: SHM a la izquierda y P-Alert a la derecha del punto real.
       m.setIcon(L.divIcon({ className: '', html: `<div class="${cls}"></div>`, iconSize: [22, 22], iconAnchor: st.network === 'tijuana' ? (st.kind === 'palert' ? [-2, 11] : [24, 11]) : [11, 11] }));
       m._cls = cls;
-      m.setZIndexOffset(st.id === selectedId ? 1000 : st.kind === 'palert' ? 100 : 0);
+      m.setZIndexOffset(st.id === selectedId ? 1000 : level === 'rojo' ? 800 : level === 'amarillo' ? 600 : level === 'verde' ? 400 : 0);
     }
-    const s = st.stats;
-    m.setTooltipContent(`<b>${esc(st.name)}</b><br>${STATUS_LABEL[status]}${s && Number.isFinite(st.newestT) ? ` · último dato ${fmtAgo(s.lag)}` : ''}${s && st.kind === 'palert' && Number.isFinite(s.intensity) ? `<br>Intensidad ${s.intensity}` : ''}`);
+    m.setTooltipContent(`<b>${esc(st.siteName)}</b> · ${st.kind === 'palert' ? 'P-Alert' : 'SHM'}<br>${LEVELS[level].label}${s && s.level !== 'off' ? ` · pico ${CFG.HOLD_S} s: ${fmtGal(s.holdGal)}` : ''}${s && Number.isFinite(st.newestT) && level === 'off' ? ` · último dato ${fmtAgo(s.lag)}` : ''}`);
   }
 }
-function renderQuakeLayers() {
-  const now = nowS();
-  for (const q of SIM.quakes) {
-    const age = now - q.t0;
-    let lay = quakeLayers.get(q.id);
-    if (age > 150 || age < -5) { if (lay) { lay.group.remove(); quakeLayers.delete(q.id); } continue; }
-    if (!lay) {
-      const group = L.layerGroup().addTo(map);
-      L.marker([q.lat, q.lon], { icon: L.divIcon({ className: '', html: '<div class="epi-true">✶</div>', iconSize: [26, 26], iconAnchor: [13, 13] }), interactive: true })
-        .bindTooltip(`<b>Sismo simulado M${q.M.toFixed(1)}</b><br>${esc(q.scenario)}<br>${fmtClock(q.t0)}`).addTo(group);
-      const p = L.circle([q.lat, q.lon], { radius: 1, color: '#1f6fb2', weight: 2, fill: false, dashArray: '6 6', interactive: false }).addTo(group);
-      const s = L.circle([q.lat, q.lon], { radius: 1, color: '#dc2626', weight: 2.5, fillColor: '#dc2626', fillOpacity: 0.06, interactive: false }).addTo(group);
-      lay = { group, p, s };
-      quakeLayers.set(q.id, lay);
-    }
-    lay.p.setRadius(Math.max(1, SIM.VP * age * 1000));
-    lay.s.setRadius(Math.max(1, SIM.VS * age * 1000));
+function renderOfficialLayers() {
+  const show = $('showOfficial').checked;
+  const keep = new Set();
+  for (const r of officialReports) {
+    if (!show || nowS() - r.time > 24 * 3600) continue;
+    keep.add(r.id);
+    if (officialLayers.has(r.id)) continue;
+    const m = L.marker([r.lat, r.lon], { icon: L.divIcon({ className: '', html: `<div class="epi-official ${r.simulated ? 'sim' : ''}">✶</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }), zIndexOffset: 1500 })
+      .bindTooltip(`<b>${esc(r.source)}</b><br>M${r.mag.toFixed(1)} · ${esc(r.place)}<br>${fmtClock(r.time, true)} · prof. ${r.depth.toFixed(0)} km`).addTo(map);
+    officialLayers.set(r.id, m);
   }
-  for (const ev of netEvents) {
-    const ok = ev.est && now - ev.firstT < 240;
-    let m = estLayers.get(ev.id);
-    if (!ok) { if (m) { m.remove(); estLayers.delete(ev.id); } continue; }
-    if (!m) {
-      m = L.marker([ev.est.lat, ev.est.lon], { icon: L.divIcon({ className: '', html: '<div class="epi-est">✚</div>', iconSize: [24, 24], iconAnchor: [12, 12] }), zIndexOffset: 2000 }).addTo(map);
-      estLayers.set(ev.id, m);
+  for (const [id, m] of officialLayers) if (!keep.has(id)) { m.remove(); officialLayers.delete(id); }
+}
+
+// ───────────────────────── reportes oficiales ─────────────────────────
+// Simulación: el "SSN (simulado)" publica el sismo con retraso y con pequeñas diferencias.
+function updateSimulatedReports() {
+  for (const q of SIM.quakes) {
+    if (q.report || nowS() < q.t0 + CFG.OFFICIAL_DELAY_S) continue;
+    const net = NET[q.network];
+    const dist = SIM.distKm(net.center[0], net.center[1], q.lat, q.lon);
+    q.report = {
+      id: `sim-${q.id}`, source: 'SSN (simulado)', simulated: true, net: q.network,
+      lat: q.lat + (Math.random() - 0.5) * 0.05, lon: q.lon + (Math.random() - 0.5) * 0.05,
+      mag: Math.round((q.M + (Math.random() - 0.5) * 0.2) * 10) / 10, depth: q.depth, time: q.t0, place: q.scenario,
+      publishedAt: nowS(), nearby: dist <= net.radiusKm,
+    };
+    if (q.report.nearby) officialReports.unshift(q.report);
+  }
+}
+// Real: sismos del catálogo del USGS cercanos a cada región (últimas 24 h).
+const usgs = { lastFetch: 0, status: 'pendiente' };
+async function fetchUsgs() {
+  if (!$('showOfficial').checked || nowS() - usgs.lastFetch < CFG.USGS_REFRESH_S) return;
+  usgs.lastFetch = nowS();
+  try {
+    let count = 0;
+    for (const [key, net] of Object.entries(NET)) {
+      const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&latitude=${net.center[0]}&longitude=${net.center[1]}&maxradiuskm=${net.radiusKm}&minmagnitude=2.5&starttime=${new Date(Date.now() - 86400000).toISOString()}`;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      const res = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`USGS respondió ${res.status}`);
+      const json = await res.json();
+      for (const f of json.features || []) {
+        const id = `usgs-${f.id}`;
+        if (officialReports.some((r) => r.id === id)) continue;
+        const [lon, lat, depth] = f.geometry.coordinates;
+        officialReports.push({ id, source: 'USGS', simulated: false, net: key, lat, lon, depth: depth ?? 0, mag: f.properties.mag ?? 0, time: f.properties.time / 1000, place: f.properties.place || '', url: f.properties.url, nearby: true });
+        count++;
+      }
     }
-    m.setLatLng([ev.est.lat, ev.est.lon]);
-    m.bindTooltip(`<b>Estimación de la red</b><br>${ev.est.M ? 'M' + ev.est.M.toFixed(1) : 'magnitud en cálculo'} · ${ev.nSites} sitios`);
+    officialReports.sort((a, b) => b.time - a.time);
+    usgs.status = `actualizado ${fmtClock(nowS())}`;
+    if (count) renderOfficialLayers();
+  } catch (err) {
+    usgs.status = `no disponible (${err.name === 'AbortError' ? 'sin respuesta' : err.message})`;
   }
 }
 
 // ───────────────────────── paneles ─────────────────────────
-function latestNetEvent(net) {
-  return netEvents.find((e) => e.net === net && e.est && nowS() - e.firstT < 300) || null;
-}
 function renderKpis() {
   const list = [...stations.values()].map((st) => st.stats).filter(Boolean);
-  const online = list.filter((s) => s.online).length;
+  const online = list.filter((s) => s.level !== 'off').length;
   setText('kpiOnline', `${online} / ${stations.size}`);
-  const count = (k) => list.filter((s) => s.status === k).length;
-  setText('kpiOnlineSub', `Alerta ${count('alerta')} · Observación ${count('observacion')} · Sin conexión ${count('sin_conexion')}`);
+  const count = (k) => list.filter((s) => s.level === k).length;
+  setText('kpiOnlineSub', `Verde ${count('verde')} · Amarillo ${count('amarillo')} · Rojo ${count('rojo')} · Sin conexión ${count('off')}`);
   const rate = list.reduce((p, s) => p + (s.online ? s.samplesPerS : 0), 0);
   setText('kpiRate', Math.round(rate).toLocaleString('es-MX'));
   const comps = list.filter((s) => s.online && Number.isFinite(s.comp)).map((s) => s.comp);
   setText('kpiRateSub', comps.length ? `Completitud mínima ${fmtPct(Math.min(...comps))}` : '–');
   const sel = stations.get(selectedId);
   setText('kpiLag', sel?.stats?.online ? fmtLag(sel.stats.lagMin) : '–');
-  setText('kpiLagSub', sel ? sel.name : '–');
+  setText('kpiLagSub', sel ? `${sel.siteName} · ${sel.kind === 'palert' ? 'P-Alert' : 'SHM'}` : '–');
 
-  const ev = netEvents.find((e) => e.est && nowS() - e.firstT < 300);
-  const box = $('kpiEewBox');
-  if (ev) {
-    const active = nowS() - ev.firstT < 60;
-    box.classList.toggle('alert', active);
-    setText('kpiEew', `${ev.est.M ? 'M' + ev.est.M.toFixed(1) : 'Sismo'} · ${NET[ev.net].label}`);
-    setText('kpiEewSub', `${active ? 'EN CURSO · ' : ''}detectado ${fmtAgo(nowS() - ev.detectedAt)} · ${ev.nSites} sitios`);
-  } else {
-    box.classList.remove('alert');
-    setText('kpiEew', 'Sin sismos');
-    setText('kpiEewSub', `${SIM.quakes.length} sismos simulados en la sesión`);
-  }
+  let top = null;
+  for (const st of stations.values()) if (st.stats?.online && (!top || st.stats.holdGal > top.stats.holdGal)) top = st;
+  const box = $('kpiAccBox');
+  const lvl = top ? top.stats.level : 'none';
+  box.className = `kpi kpi-acc ${LEVELS[lvl].cls}`;
+  setText('kpiAcc', top ? fmtGal(top.stats.holdGal) : '–');
+  const over = list.filter((s) => s.online && s.holdGal >= ACC.det).length;
+  setText('kpiAccSub', top && top.stats.holdGal >= ACC.det ? `${top.siteName} · ${over} ${over === 1 ? 'estación' : 'estaciones'} ≥ ${ACC.det} gal` : `Ninguna estación ≥ ${ACC.det} gal`);
+
   api.requests = api.requests.filter((r) => Date.now() - r < 60000);
   setText('apiStatus', 'Modo simulación · datos generados en el navegador');
-  setText('apiMeta', `${stations.size} estaciones · ${api.requests.length.toLocaleString('es-MX')} consultas/min · ${fmtClock(nowS())}`);
+  setText('apiMeta', `${stations.size} estaciones · ${api.requests.length.toLocaleString('es-MX')} consultas/min · USGS ${usgs.status} · ${fmtClock(nowS())}`);
 }
 
 function renderDetail() {
@@ -915,8 +895,8 @@ function renderDetail() {
   setText('dName', st.siteName);
   setText('dMeta', `${st.id} · ${st.type}${st.kind === 'shm' ? ` · modo del edificio ≈ ${st.f0} Hz` : ''}`);
   const badge = $('dBadge');
-  badge.textContent = STATUS_LABEL[s.status];
-  badge.className = `badge ${s.status}`;
+  badge.textContent = s.level === 'off' || s.level === 'none' ? LEVELS[s.level].label : `${LEVELS[s.level].label} · ${fmtGal(s.holdGal, 0)}`;
+  badge.className = `badge ${LEVELS[s.level].cls}`;
   $('dReasons').innerHTML = s.reasons.map(([k, txt]) => `<li class="${k}">${esc(txt)}</li>`).join('');
   const has = Number.isFinite(st.newestT);
   setText('dLast', has ? fmtClock(st.newestT, true) : '–');
@@ -929,9 +909,9 @@ function renderDetail() {
   compEl.textContent = fmtPct(compVal);
   compEl.className = compVal < CFG.COMPLETENESS_WARN ? 'low' : '';
   setText('dCompSub', st.kind === 'shm' ? `ciclos con datos · peor sensor ${fmtPct(s.comp)}` : 'contada con el número de secuencia');
-  setText('dRms', fmtMg(s.rmsMg, 3));
-  setText('dPga', fmtMg(s.pgaMg, 2));
-  setText('dPgaSub', Number.isFinite(s.pgaMg) ? `${(s.pgaMg * 0.981).toFixed(2)} gal · últimos 10 s` : 'últimos 10 s');
+  setText('dRms', fmtGal(s.pgaGal));
+  setText('dPga', fmtGal(s.holdGal));
+  setText('dPgaSub', `máximo de los últimos ${CFG.HOLD_S} s`);
   if (st.kind === 'palert') {
     setText('dM7L', 'Intensidad (escala CWA)');
     setText('dM7', Number.isFinite(s.intensity) ? String(s.intensity) : '–');
@@ -942,15 +922,15 @@ function renderDetail() {
   } else {
     setText('dM7L', 'Frecuencia dominante');
     setText('dM7', st.spec && Number.isFinite(st.spec.dom) ? `${st.spec.dom.toFixed(2)} Hz` : '–');
-    setText('dM7Sub', st.spec ? `amplitud ${fmtMg(st.spec.domAmp, 3)}` : 'se calcula con la señal continua');
+    setText('dM7Sub', st.spec ? `amplitud ${fmtGal(st.spec.domAmp, 2)}` : 'se calcula con la señal continua');
     setText('dM8L', 'Sensores internos');
     setText('dM8', `${s.reporting} / ${s.expected}`);
-    setText('dM8Sub', s.reporting === s.expected ? 'los 3 promediados en cada ciclo' : 'se promedian los que siguen reportando');
+    setText('dM8Sub', s.reporting === s.expected ? 'combinados en una sola medición' : 'se combinan los que siguen reportando');
   }
   $('dChips').innerHTML = st.kind === 'palert' ? '' : s.sensors.map(([name, x]) => {
     const bad = x.cons && (x.cons.offsetMg > FUSE_REJECT_MG || x.cons.exclPct > 0.05);
     const cls = !x.online ? 'off' : bad || x.comp < CFG.COMPLETENESS_WARN ? 'warn' : '';
-    const dev = x.cons ? (x.cons.exclPct > 0.05 ? ' · descartado' : ` · desfase ${x.cons.offsetMg.toFixed(1)} mg`) : '';
+    const dev = x.cons ? (x.cons.exclPct > 0.05 ? ' · descartado' : ` · desfase ${fmtGal(x.cons.offsetMg * 0.981)}`) : '';
     return `<span class="sensor-chip ${cls}"><b>${esc(name)}</b> · ${fmtPct(x.comp)}${dev}</span>`;
   }).join('');
   setText('dRaw', st.lastRecord ? JSON.stringify(st.lastRecord, null, 2) : '{}');
@@ -966,7 +946,7 @@ function renderSensorTable() {
     <td class="num ${f.comp < CFG.COMPLETENESS_WARN ? 'low' : ''}">${fmtPct(f.comp)}</td>
     <td class="num">${f.bySeq ? f.gaps.toLocaleString('es-MX') + ' ciclos' : '–'}</td>
     <td class="num">–</td>
-    <td class="num">${fmtMg(f.rmsMg, 3)}</td></tr>` : '';
+    <td class="num">${fmtGal(f.rmsMg * 0.981, 2)}</td></tr>` : '';
   const rows = st.kind === 'palert' ? [] : st.stats.sensors.map(([name, x]) => {
     const c = x.cons;
     const bad = c && (c.offsetMg > FUSE_REJECT_MG || c.exclPct > 0.05);
@@ -975,8 +955,8 @@ function renderSensorTable() {
     <td class="num">${Number.isFinite(x.fs) ? x.fs.toFixed(1) + ' Hz' : '–'}</td>
     <td class="num ${x.comp < CFG.COMPLETENESS_WARN ? 'low' : ''}">${fmtPct(x.comp)}</td>
     <td class="num">${x.bySeq ? x.gaps.toLocaleString('es-MX') : '–'}</td>
-    <td class="num ${bad ? 'low' : ''}">${c ? (c.exclPct > 0.05 ? `descartado ${fmtPct(c.exclPct)}` : `${c.offsetMg.toFixed(1)} / ${c.dynMg.toFixed(2)} mg`) : '–'}</td>
-    <td class="num">${fmtMg(x.rmsMg, 3)}</td></tr>`;
+    <td class="num ${bad ? 'low' : ''}">${c ? (c.exclPct > 0.05 ? `descartado ${fmtPct(c.exclPct)}` : `${(c.offsetMg * 0.981).toFixed(1)} / ${(c.dynMg * 0.981).toFixed(2)} gal`) : '–'}</td>
+    <td class="num">${fmtGal(x.rmsMg * 0.981, 2)}</td></tr>`;
   });
   $('sensorTable').innerHTML = unitRow + rows.join('') || '<tr><td colspan="6">Sin datos.</td></tr>';
 }
@@ -989,19 +969,17 @@ function renderStationTable() {
     const s = st.stats;
     if (!s) return '';
     const has = Number.isFinite(st.newestT);
-    const conf = st.events.filter(isConfirmed).length, iso = st.events.length - conf;
     return `<tr data-id="${esc(st.id)}" class="${st.id === selectedId ? 'selected' : ''}" tabindex="0">
       <td><b>${esc(st.siteName)}</b><br><small>${esc(st.id)}</small></td>
       <td>${st.kind === 'palert' ? 'P-Alert' : 'SHM'}<br><small>${NET[st.network].label}</small></td>
-      <td><span class="tag ${s.status}">${STATUS_LABEL[s.status]}</span></td>
+      <td><span class="tag ${LEVELS[s.level].cls}">${LEVELS[s.level].label}</span></td>
+      <td class="num">${s.level !== 'off' ? fmtGal(s.holdGal) : '–'}</td>
+      <td class="num">${s.level !== 'off' ? fmtGal(s.pgaGal) : '–'}</td>
+      <td>${s.level === 'off' ? '–' : s.health === 'ok' ? 'Bien' : '<span class="low">Revisar</span>'}</td>
       <td>${has ? fmtClock(st.newestT, true) : '–'}</td>
       <td class="num">${s.online ? fmtLag(s.lagMin) : has ? fmtAgo(s.lag) : '–'}</td>
-      <td class="num">${s.online ? Math.round(s.samplesPerS) : '–'}</td>
       <td class="num ${s.online && s.comp < CFG.COMPLETENESS_WARN ? 'low' : ''}">${s.online ? fmtPct(s.comp) : '–'}</td>
-      <td class="num">${has ? fmtMg(s.rmsMg, 3) : '–'}</td>
-      <td class="num">${has ? fmtMg(s.pgaMg, 2) : '–'}</td>
-      <td class="num">${has && Number.isFinite(s.intensity) ? `<span class="int int-${s.intensity}">${s.intensity}</span>` : '–'}</td>
-      <td class="num">${conf}${iso ? ` <small>(+${iso})</small>` : ''}</td></tr>`;
+      <td class="num">${has && Number.isFinite(s.intensity) ? `<span class="int int-${s.intensity}">${s.intensity}</span>` : '–'}</td></tr>`;
   }).join('');
 }
 
@@ -1010,72 +988,65 @@ function renderEvents() {
   const st = stations.get(selectedId);
   const list = st ? st.events : [];
   if (!list.length) {
-    box.innerHTML = `<div class="event empty">El ${unitTitle(stations.get(selectedId) || {})} no ha detectado eventos. La detección se calibra con unos 30 s de señal continua.</div>`;
+    box.innerHTML = `<div class="event empty">El ${st ? unitTitle(st) : 'sensor'} no ha tenido disparos STA/LTA. La detección se calibra con unos 30 s de señal continua.</div>`;
     return;
   }
   box.innerHTML = list.slice(0, 40).map((ev) => {
     const c = isConfirmed(ev);
-    const net = c ? netEvents.find((n) => n.id === ev.netEvent) : null;
-    const what = c ? `Sismo confirmado por la red${net ? ` (${net.nSites} sitios)` : ''}` : 'Detección local, sin confirmar por otros sitios';
-    return `<div class="event ${c ? 'confirmed' : 'isolated'}"><b>${what}</b> · ${fmtClock(ev.start, true)}<br>
-      duración ${(ev.end - ev.start).toFixed(1)} s · pico ${fmtMg(ev.peakMg, 1)} (${(ev.peakMg * 0.981).toFixed(1)} gal) · STA/LTA ${ev.peakRatio.toFixed(1)}</div>`;
+    return `<div class="event ${c ? 'confirmed' : 'isolated'}"><b>${c ? `Coincide con una detección de red (${CFG.NET_MIN_STATIONS}+ estaciones ≥ ${ACC.det} gal)` : 'Disparo local, sin detección de red'}</b> · ${fmtClock(ev.start, true)}<br>
+      duración ${(ev.end - ev.start).toFixed(1)} s · pico ${fmtGal(ev.peakMg * 0.981)} · STA/LTA ${ev.peakRatio.toFixed(1)}</div>`;
   }).join('');
 }
 
-function renderEew() {
-  const box = $('eewBox');
-  const ev = latestNetEvent(eewNet);
-  const pending = netEvents.find((e) => e.net === eewNet && !e.est && nowS() - e.firstT < 60);
-  if (!ev) {
-    box.innerHTML = pending
-      ? `<div class="eew-head pending"><span class="big">Posible sismo: ${pending.picks.size} detecciones</span><small>Esperando a que ${CFG.NET_MIN_SITES} sitios detecten la onda para localizarlo.</small></div>`
-      : `<div class="eew-empty">Sin sismos detectados en ${NET[eewNet].label} en los últimos 5 minutos. Usa el simulador para lanzar uno.</div>`;
+// Panel principal pedido: cómo van detectando la aceleración las estaciones.
+function renderDetection() {
+  const box = $('detBox');
+  const g = accGroups.find((x) => x.net === detNet && nowS() - x.detectedAt < 600);
+  if (!g) {
+    box.innerHTML = `<div class="eew-empty">Ninguna estación de ${NET[detNet].label} ha superado ${ACC.det} gal en los últimos 10 minutos.</div>` + officialListHtml(detNet);
     return;
   }
-  const e = ev.est, now = nowS();
-  const epi = { lat: e.lat, lon: e.lon };
-  const ref = NET[eewNet].ref;
-  const dRef = SIM.distKm(ref.lat, ref.lon, e.lat, e.lon);
-  const sites = siteList(eewNet).map((site) => {
-    const R = Math.hypot(SIM.distKm(e.lat, e.lon, site.lat, site.lon), e.depth);
-    const tS = e.t0 + R / SIM.VS;
-    const gal = e.M ? SIM.pgaGal(e.M, R) : NaN;
-    return { ...site, R, remain: tS - now, gal, int: Number.isFinite(gal) ? intensity(gal) : NaN };
-  }).sort((a, b) => a.R - b.R);
-  const anyComing = sites.some((s) => s.remain > 0);
-  const maxInt = Math.max(...sites.map((s) => (Number.isFinite(s.int) ? s.int : 0)));
-  const headCls = anyComing ? 'alert' : now - ev.firstT < 60 ? 'alert' : 'done';
-  const q = ev.truth;
-  const truthTxt = q
-    ? `Simulador (valor real): M${q.M.toFixed(1)} · ${esc(q.scenario)} · error de localización ${SIM.distKm(q.lat, q.lon, e.lat, e.lon).toFixed(0)} km${e.M ? ` · error de magnitud ${(e.M - q.M >= 0 ? '+' : '') + (e.M - q.M).toFixed(1)}` : ''}`
-    : 'No se asoció a un sismo simulado (posible falsa detección).';
+  const rows = [...g.stations.entries()].map(([id, d]) => ({ st: stations.get(id), ...d })).filter((r) => r.st).sort((a, b) => a.tFirst - b.tFirst);
+  const lvl = levelOf(g.peak);
+  const net = rows.length >= CFG.NET_MIN_STATIONS;
+  const live = rows.some((r) => r.st.acc.active);
   box.innerHTML = `
-    <div class="eew-head ${headCls}">
-      <span class="big">${anyComing ? '⚠ ' : ''}Sismo ${e.M ? 'M' + e.M.toFixed(1) : ''} a ${dRef.toFixed(0)} km al ${bearingText(ref, epi)} de ${esc(ref.name)}</span>
-      <small>Origen ${fmtClock(e.t0)} · estimado con ${ev.nSites} sitios · residuo ${e.rms.toFixed(2)} s · intensidad máxima esperada ${maxInt}</small>
+    <div class="det-head ${LEVELS[lvl].cls}">
+      <span class="big">${live ? '● ' : ''}${rows.length} ${rows.length === 1 ? 'estación' : 'estaciones'} ≥ ${ACC.det} gal · máximo ${fmtGal(g.peak)}</span>
+      <small>Primera detección ${fmtClock(g.start)} · ${net ? 'detección de red' : `se necesitan ${CFG.NET_MIN_STATIONS} estaciones para detección de red`}${live ? ' · en curso' : ''}</small>
     </div>
-    <p class="eew-truth">${truthTxt}</p>
     <div class="table-scroll" style="padding:0">
       <table class="mini">
-        <thead><tr><th>Sitio</th><th>Distancia</th><th>Intensidad estimada</th><th>Onda S</th></tr></thead>
-        <tbody>${sites.map((s) => `<tr>
-          <td>${esc(s.name)}</td>
-          <td class="num">${s.R.toFixed(0)} km</td>
-          <td>${Number.isFinite(s.int) ? `<span class="int int-${s.int}">${s.int}</span> ${INT_TEXT[s.int].split(' · ')[1]}` : 'calculando…'}</td>
-          <td class="count ${s.remain > 0 ? 'soon' : 'past'}">${s.remain > 0 ? `llega en ${Math.ceil(s.remain)} s` : `llegó ${fmtAgo(-s.remain)}`}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>Estación</th><th>Detectó</th><th>Pico</th><th>Nivel</th><th>Ahora</th></tr></thead>
+        <tbody>${rows.map((r) => {
+          const lv = levelOf(r.peak);
+          const now = r.st.stats?.pgaGal;
+          return `<tr data-id="${esc(r.st.id)}">
+            <td>${esc(r.st.siteName)} <small>${r.st.kind === 'palert' ? 'P-Alert' : 'SHM'}</small></td>
+            <td class="num">${fmtClock(r.tFirst)} <small>+${(r.tFirst - g.start).toFixed(1)} s</small></td>
+            <td class="num"><b>${fmtGal(r.peak)}</b></td>
+            <td><span class="tag ${LEVELS[lv].cls}">${LEVELS[lv].label}</span></td>
+            <td class="num">${r.st.acc.active ? fmtGal(now) : 'bajo umbral'}</td></tr>`;
+        }).join('')}</tbody>
       </table>
-    </div>`;
+    </div>` + officialListHtml(detNet);
+}
+function officialListHtml(net) {
+  if (!$('showOfficial').checked) return '';
+  const list = officialReports.filter((r) => r.net === net && nowS() - r.time < 24 * 3600).slice(0, 6);
+  return `<h4 class="off-title">Epicentros oficiales cercanos (24 h)</h4>` + (list.length
+    ? `<ul class="off-list">${list.map((r) => `<li><b>${esc(r.source)}</b> · M${r.mag.toFixed(1)} · ${esc(r.place)} · ${fmtClock(r.time, true)}${r.url ? ` · <a href="${esc(r.url)}" target="_blank" rel="noopener">detalle</a>` : ''}</li>`).join('')}</ul>`
+    : `<p class="fine-inline">Sin reportes. USGS: ${esc(usgs.status)}.${SIM.quakes.some((q) => q.network === net && !q.report) ? ` El reporte del sismo simulado llega ${CFG.OFFICIAL_DELAY_S} s después.` : ''}</p>`);
 }
 
 function renderQuakeList() {
   const rows = [...SIM.quakes].reverse().slice(0, 12);
   $('quakeList').innerHTML = rows.length ? rows.map((q) => {
-    const d = q.detection;
-    const est = d?.est;
-    const det = est ? `M${est.M ? est.M.toFixed(1) : '?'} · ${d.nSites} sitios · ${SIM.distKm(q.lat, q.lon, est.lat, est.lon).toFixed(0)} km de error`
-      : nowS() - q.t0 < 90 ? 'esperando detecciones…' : 'no detectado';
-    return `<tr><td>${fmtClock(q.t0)}</td><td>${NET[q.network].label} · ${esc(q.scenario)}${q.auto ? ' <small>(auto)</small>' : ''}</td><td class="num">${q.M.toFixed(1)}</td><td>${det}</td></tr>`;
-  }).join('') : '<tr><td colspan="4">Todavía no hay sismos simulados.</td></tr>';
+    const g = accGroups.find((x) => x.net === q.network && x.start >= q.t0 - 5 && x.start <= q.t0 + 120);
+    const det = g ? `${g.stations.size} estaciones ≥ ${ACC.det} gal · máx. ${fmtGal(g.peak)}` : nowS() - q.t0 < 60 ? 'esperando…' : `ninguna ≥ ${ACC.det} gal`;
+    const rep = q.report ? `M${q.report.mag.toFixed(1)}` : `en ${Math.max(0, Math.ceil(q.t0 + CFG.OFFICIAL_DELAY_S - nowS()))} s`;
+    return `<tr><td>${fmtClock(q.t0)}</td><td>${NET[q.network].label} · ${esc(q.scenario)}${q.auto ? ' <small>(auto)</small>' : ''}</td><td class="num">${q.M.toFixed(1)}</td><td>${det}</td><td>${rep}</td></tr>`;
+  }).join('') : '<tr><td colspan="5">Todavía no hay sismos simulados.</td></tr>';
   setText('qAutoNext', SIM.getAuto() ? `próximo en ~${Math.round(SIM.nextAutoIn())} s` : '');
 }
 
@@ -1096,16 +1067,16 @@ function refreshModeOptions() {
     sel.value = selectedMode || '';
   }
   const ex = $('exSensor');
-  const exOpts = st?.kind === 'shm' ? [['__unit', 'SHM unificado (promedio por ciclo)'], ['', 'Los 3 sensores internos (crudo)'], ...names.map((n) => [n, `Solo ${n}`])] : [['', 'P-Alert']];
+  const exOpts = st?.kind === 'shm' ? [['__unit', 'SHM unificado (una fila por ciclo)'], ['', 'Los 3 sensores internos (crudo)'], ...names.map((n) => [n, `Solo ${n}`])] : [['', 'P-Alert']];
   const exHtml = exOpts.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
   if (ex.dataset.h !== exHtml) { const cur = ex.value; ex.innerHTML = exHtml; ex.dataset.h = exHtml; ex.value = exOpts.some(([v]) => v === cur) ? cur : exOpts[0][0]; }
 }
 
-function setEewNet(net, manual) {
-  eewNet = net;
-  if (manual) eewNetManual = true;
+function setDetNet(net, manual) {
+  detNet = net;
+  if (manual) detNetManual = true;
   document.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.net === net));
-  renderEew();
+  renderDetection();
 }
 function selectStation(id, { pan = true } = {}) {
   if (!stations.has(id)) return;
@@ -1117,7 +1088,7 @@ function selectStation(id, { pan = true } = {}) {
   $('btnPause').setAttribute('aria-pressed', 'false');
   const st = stations.get(id);
   if (pan) map.panTo([st.lat, st.lon]);
-  if (!eewNetManual) setEewNet(st.network);
+  if (!detNetManual) setDetNet(st.network);
   try { history.replaceState(null, '', `#${encodeURIComponent(id)}`); } catch { /* sin historial */ }
   slowRender();
   renderSignal();
@@ -1125,10 +1096,10 @@ function selectStation(id, { pan = true } = {}) {
 }
 function slowRender() {
   for (const st of stations.values()) stationStats(st);
-  updateNetwork();
+  updateSimulatedReports();
   refreshModeOptions();
   renderAnalysis();
-  renderKpis(); renderDetail(); renderMap(); renderStationTable(); renderSensorTable(); renderEvents(); renderQuakeList();
+  renderKpis(); renderDetail(); renderMap(); renderOfficialLayers(); renderStationTable(); renderSensorTable(); renderEvents(); renderQuakeList();
 }
 
 // ───────────────────────── descarga ─────────────────────────
@@ -1244,7 +1215,7 @@ function buildRows(st, data, step) {
     let pk = 0;
     for (const [x, y, z] of g.v) pk = Math.max(pk, Math.hypot(x - mx, y - my, z - mz));
     return { inicio_utc: new Date(g.t0 * 1000).toISOString(), device_id: st.id, tipo: st.kind, sitio: st.siteName, sensor_type: g.sensor, muestras: g.n,
-      x_prom_g: +mx.toFixed(7), y_prom_g: +my.toFixed(7), z_prom_g: +mz.toFixed(7), pico_dinamico_mg: +(pk * 1000).toFixed(3), pico_gal: +(pk * 981).toFixed(3) };
+      x_prom_g: +mx.toFixed(7), y_prom_g: +my.toFixed(7), z_prom_g: +mz.toFixed(7), pico_dinamico_gal: +(pk * G2GAL).toFixed(3) };
   });
 }
 function csvOf(rows) {
@@ -1305,15 +1276,31 @@ function fillScenarios() {
 function launchQuake() {
   const net = $('qNet').value;
   const q = SIM.addQuake({ network: net, scenarioId: $('qScenario').value, M: Number($('qMag').value) });
-  // Seleccionar el sitio más cercano (P-Alert en Tijuana) para ver llegar las ondas.
-  const nearest = [...stations.values()].filter((s) => s.network === net && (net === 'guerrero' || s.kind === 'palert') && isOnline(s))
+  // Se selecciona la estación más cercana para ver llegar la señal (no se muestra epicentro).
+  const nearest = [...stations.values()].filter((s) => s.network === net && isOnline(s))
     .sort((a, b) => SIM.distKm(q.lat, q.lon, a.lat, a.lon) - SIM.distKm(q.lat, q.lon, b.lat, b.lon))[0];
-  eewNetManual = false;
-  setEewNet(net);
-  const view = L.latLngBounds(NET[net].view).extend([q.lat, q.lon]);
-  map.fitBounds(view, { padding: [30, 30] });
+  detNetManual = false;
+  setDetNet(net);
+  fitNet(net);
   if (nearest) { selectStation(nearest.id, { pan: false }); $('signalWin').value = '60'; }
   renderQuakeList();
+}
+function renderThresholdInputs() {
+  $('thDet').value = ACC.det; $('thYellow').value = ACC.yellow; $('thRed').value = ACC.red;
+  setText('lgVerde', `${ACC.det}–${ACC.yellow} gal`);
+  setText('lgAmarillo', `${ACC.yellow}–${ACC.red} gal`);
+  setText('lgRojo', `≥ ${ACC.red} gal`);
+  setText('lgNone', `< ${ACC.det} gal`);
+}
+function readThresholds() {
+  const d = Number($('thDet').value), y = Number($('thYellow').value), r = Number($('thRed').value);
+  const msg = $('thMsg');
+  if (!(d > 0 && y > d && r > y)) { msg.textContent = 'Los umbrales deben ir de menor a mayor (detección < amarillo < rojo).'; return; }
+  msg.textContent = '';
+  ACC.det = d; ACC.yellow = y; ACC.red = r;
+  saveAcc();
+  renderThresholdInputs();
+  slowRender(); renderDetection();
 }
 
 // ───────────────────────── interfaz ─────────────────────────
@@ -1337,12 +1324,13 @@ function bind() {
     const v = (id, def) => { const n = Number($(id).value); return Number.isFinite(n) && n > 0 ? n : def; };
     trig.sta = v('cfgSta', 1); trig.lta = Math.max(v('cfgLta', 20), trig.sta * 3);
     trig.on = v('cfgOn', 3.5); trig.off = Math.min(v('cfgOff', 1.5), trig.on - 0.1);
-    for (const st of stations.values()) for (const b of st.sensors.values()) { b.d.n = 0; b.d.trig = false; }
+    for (const st of stations.values()) { st.fused.d.n = 0; st.fused.d.trig = false; }
   };
   ['cfgSta', 'cfgLta', 'cfgOn', 'cfgOff'].forEach((id) => $(id).addEventListener('change', readTrig));
   $('btnClearEvents').addEventListener('click', () => { allEvents.length = 0; for (const st of stations.values()) st.events.length = 0; slowRender(); });
   $('stationTable').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) selectStation(tr.dataset.id); });
   $('stationTable').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const tr = e.target.closest('tr[data-id]'); if (tr) selectStation(tr.dataset.id); } });
+  $('detBox').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) selectStation(tr.dataset.id); });
   ['fNet', 'fKind', 'fStatus'].forEach((id) => $(id).addEventListener('change', () => { renderStationTable(); renderMap(); }));
   ['exStart', 'exEnd', 'exSensor', 'exStep'].forEach((id) => $(id).addEventListener('change', updateEstimate));
   document.querySelectorAll('[data-range]').forEach((b) => b.addEventListener('click', () => setRange(Number(b.dataset.range))));
@@ -1353,25 +1341,30 @@ function bind() {
   $('qMag').addEventListener('input', () => setText('qMagOut', Number($('qMag').value).toFixed(1)));
   $('btnQuake').addEventListener('click', launchQuake);
   $('qAuto').addEventListener('change', (e) => { SIM.setAuto(e.target.checked); renderQuakeList(); });
-  document.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => setEewNet(b.dataset.net, true)));
+  document.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => setDetNet(b.dataset.net, true)));
+  ['thDet', 'thYellow', 'thRed'].forEach((id) => $(id).addEventListener('change', readThresholds));
+  $('btnThReset').addEventListener('click', () => { Object.assign(ACC, ACC_DEFAULT); saveAcc(); renderThresholdInputs(); slowRender(); renderDetection(); });
+  $('showOfficial').addEventListener('change', () => { usgs.lastFetch = 0; fetchUsgs(); renderOfficialLayers(); renderDetection(); });
 }
 
 // ───────────────────────── arranque ─────────────────────────
 async function boot() {
-  initMap(); initCharts(); bind(); fillScenarios();
+  initMap(); initCharts(); bind(); fillScenarios(); renderThresholdInputs();
   SIM.stations.forEach((s, i) => { ensureStation(s.id).nextPollAt = Date.now() + i * 70; });
   const fromHash = decodeURIComponent(location.hash.slice(1));
   selectedId = stations.has(fromHash) ? fromHash : 'palert-tijuana-01';
   fitNet(stations.get(selectedId).network);
-  setEewNet(stations.get(selectedId).network);
+  setDetNet(stations.get(selectedId).network);
   setRange(600);
   await loadOpenApi();
   slowRender();
+  fetchUsgs();
 
   setInterval(scheduler, 250);
-  setInterval(() => { if (!document.hidden) { renderSignal(); renderQuakeLayers(); } }, 200);
-  setInterval(() => { if (!document.hidden) renderEew(); }, 500);
+  setInterval(() => { if (!document.hidden) renderSignal(); }, 200);
+  setInterval(() => { if (!document.hidden) renderDetection(); }, 700);
   setInterval(() => { if (!document.hidden) slowRender(); }, 1500);
+  setInterval(fetchUsgs, 30000);
   scheduler();
 }
 boot();
