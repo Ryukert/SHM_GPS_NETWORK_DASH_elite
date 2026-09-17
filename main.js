@@ -80,13 +80,15 @@ const REAL_API_BASE = 'https://retriever-1031456939583.us-west2.run.app';
 const REAL_POLL_MS = 4000;
 let realTimer = null;
 let realPolling = false;
-// La API real no expone GPS; usamos la ciudad de cada estación como ubicación aproximada
-// (no es la posición exacta del sensor, solo la referencia de la ciudad).
+// La API real no expone GPS; usamos la ubicación conocida de cada estación como referencia
+// (no es la posición exacta del sensor dentro del sitio, solo la del sitio/edificio).
 const REAL_DEVICE_INFO = {
-  'rpi_shm_v56': { name: 'Equipo de pruebas UABC', city: 'Ensenada (laboratorio)', lat: 31.8667, lon: -116.6000, type: 'Laboratorio' },
-  'uabc-estacion-ensenada-01': { name: 'Estación Ensenada', city: 'Ensenada', lat: 31.8667, lon: -116.6000, type: 'Edificio' },
-  'uabc-estacion-mexicali-01': { name: 'Estación Mexicali', city: 'Mexicali', lat: 32.6245, lon: -115.4523, type: 'Edificio' },
-  'uabc-estacion-tijuana-01': { name: 'Estación Tijuana', city: 'Tijuana', lat: 32.5149, lon: -117.0382, type: 'Edificio' },
+  // Dispositivo actualmente activo: unidad de pruebas instalada en la UTyP de la Sierra
+  // de Guerrero, Tlacotepec (municipio Gral. Heliodoro Castillo) — no en Baja California.
+  'rpi_shm_v56': { name: 'UTyP Sierra de Guerrero (Tlacotepec)', city: 'Tlacotepec, Guerrero', lat: 17.790278, lon: -99.978333, type: 'Laboratorio', region: 'Sur-Sureste', state: 'Guerrero' },
+  'uabc-estacion-ensenada-01': { name: 'Estación Ensenada', city: 'Ensenada', lat: 31.8667, lon: -116.6000, type: 'Edificio', region: 'Noroeste', state: 'Baja California' },
+  'uabc-estacion-mexicali-01': { name: 'Estación Mexicali', city: 'Mexicali', lat: 32.6245, lon: -115.4523, type: 'Edificio', region: 'Noroeste', state: 'Baja California' },
+  'uabc-estacion-tijuana-01': { name: 'Estación Tijuana', city: 'Tijuana', lat: 32.5149, lon: -117.0382, type: 'Edificio', region: 'Noroeste', state: 'Baja California' },
 };
 const BAJA_CENTER = [30.8, -115.9];
 // key = "device_id·sensor_type" -> { t:[], x:[], y:[], z:[], lastT, lastRs }
@@ -427,7 +429,7 @@ function buildRealNodes(){
     const info = REAL_DEVICE_INFO[devId];
     const sensorKeys = Array.from(realBuffers.keys()).filter(k=>k.startsWith(devId+'·'));
     if(!sensorKeys.length){
-      out.push({ id:devId, name:info.name, type:info.type, state:'Baja California', city:info.city, region:'Noroeste',
+      out.push({ id:devId, name:info.name, type:info.type, state:info.state, city:info.city, region:info.region,
         lat:info.lat, lon:info.lon, site:info.city, battery:100, installed:2025, priority:'Media',
         rmsX:0, rmsY:0, rmsZ:0, rmsGlobal:0, freqDominante:0, sampleRate:0, satellites:0, gpsFix:false,
         status:'sin_conexion', lastUpdate:now() });
@@ -459,7 +461,7 @@ function buildRealNodes(){
       status = rmsGlobal>0.5 ? 'alerta' : rmsGlobal>0.2 ? 'observacion' : 'activo';
     }
     out.push({
-      id:devId, name:info.name, type:info.type, state:'Baja California', city:info.city, region:'Noroeste',
+      id:devId, name:info.name, type:info.type, state:info.state, city:info.city, region:info.region,
       lat:info.lat, lon:info.lon, site:info.city, battery:100, installed:2025, priority:'Media',
       rmsX:Number(rmsX.toFixed(5)), rmsY:Number(rmsY.toFixed(5)), rmsZ:Number(rmsZ.toFixed(5)), rmsGlobal,
       freqDominante:Number(freq.toFixed(2)), sampleRate, satellites:0, gpsFix:false,
@@ -476,14 +478,18 @@ function setDataSource(source){
   if(evCard) evCard.style.display = source==='real' ? '' : 'none';
   if(source==='real'){
     if(timer) clearInterval(timer);
-    map.setMaxBounds(null); map.setMinZoom(4);
+    map.setMaxBounds(null); map.setMinZoom(3);
     setText('realStatus','Conectando con la API real…');
-    setText('mapStatus','Mapa: dispositivos reales (Baja California)');
+    setText('mapStatus','Mapa: dispositivos reales (Guerrero y Baja California)');
     fetchRealDeviceList().then(ids=>{
       ids.forEach(id=>realDeviceIds.add(id));
       nodes = buildRealNodes();
       selectedId = nodes[0]?.id || selectedId;
-      map.setView(BAJA_CENTER, 6);
+      // Los sitios reales están muy separados (Sierra de Guerrero y Baja California),
+      // así que se ajusta el mapa a todos en vez de usar un centro/zoom fijo.
+      const pts = nodes.map(n=>[n.lat,n.lon]);
+      if(pts.length) map.fitBounds(L.latLngBounds(pts), { padding:[40,40] });
+      else map.setView(BAJA_CENTER, 5);
       render();
       realTick();
       if(realTimer) clearInterval(realTimer);
