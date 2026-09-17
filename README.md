@@ -86,6 +86,16 @@ La red **no calcula epicentros**. Solo se muestran los publicados por fuentes of
 - **SSN (simulado):** para los sismos del simulador, el reporte aparece 45 s después, con pequeñas diferencias, como llegaría un reporte real.
 - **SSN (real):** su servicio no permite consultas directas desde el navegador; para integrarlo hace falta un proxy en el servidor (como `api/proxy.js` en la versión real).
 
-## Logotipo
+## Logotipos
 
-Coloca el logotipo de FCITEC en `assets/fcitec.png` y aparecerá en el encabezado. Si no existe, se usa el logotipo actual.
+El encabezado busca solo los archivos en `assets/` y los muestra cuando existen:
+
+| Archivo | Dónde aparece | Incluido |
+|---|---|---|
+| `assets/fcitec.png` | A la izquierda, junto al nombre de la red | Sí |
+| `assets/uabc.png` | A la derecha | Sí (escudo UABC) |
+| `assets/colaborador.png` | A la derecha, junto al de UABC (opcional) | Sí (UAGro; bórralo si no lo quieres) |
+
+También sirven `.jpg` y `.webp`. Lo ideal es PNG o SVG con fondo transparente, de unos 200 px de alto.
+Si borras alguno, en su lugar se muestra el nombre en texto y la página se ve igual de bien. Los logotipos horizontales, como el de FCITEC, se acomodan solos en un recuadro más ancho.
+Los archivos `miidt.png` y `uagro.png` siguen en `assets/`: para usar uno de ellos, cámbiale el nombre, por ejemplo a `colaborador.png`.
