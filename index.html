@@ -2,11 +2,10 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>MIIDT · Red SHM en vivo</title>
+  <title>SIMULACIÓN · Red SHM + P-Alert · MIIDT</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="Monitoreo en vivo de la red de sensores SHM: señal, espectro, detección STA/LTA y salud de datos por estación, con datos reales de la API Retriever." />
+  <meta name="description" content="Simulación de una red de monitoreo estructural (SHM) y alerta temprana P-Alert en planteles COBACH de Tijuana y edificios de Guerrero." />
   <meta name="theme-color" content="#0f172a" />
-
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.js"></script>
@@ -14,15 +13,19 @@
   <link rel="stylesheet" href="./main.css" />
 </head>
 <body>
+  <div class="sim-banner" role="note">
+    <b>SIMULACIÓN</b> · Todos los datos, sensores y sismos se generan en este navegador. No provienen de instrumentos reales. Nombres y ubicaciones de planteles aproximados.
+  </div>
+
   <header class="hero">
     <div class="wrap">
       <div class="brand-row">
         <div class="brand-left">
           <div class="logo-box"><img src="./assets/miidt.png" alt="MIIDT" /></div>
           <div>
-            <div class="eyebrow">Universidad Autónoma de Guerrero · MIIDT</div>
-            <h1>Red SHM-IoT en vivo</h1>
-            <p>Señal de aceleración, espectro, detección de eventos STA/LTA y salud de la transmisión de cada estación, con datos reales de la API Retriever.</p>
+            <div class="eyebrow">Universidad Autónoma de Guerrero · MIIDT · Demostración</div>
+            <h1>Red SHM + P-Alert</h1>
+            <p>Tijuana: 10 planteles COBACH, cada uno con una unidad SHM y un P-Alert trabajando a la vez. Guerrero: 10 edificios con una unidad SHM. Cada SHM combina sus 3 sensores internos en una sola medición. Simula sismos y observa cómo los detecta la red.</p>
           </div>
         </div>
         <img class="partner" src="./assets/uagro.png" alt="UAGro" />
@@ -32,7 +35,7 @@
         <div class="kpi">
           <div class="kpi-label">Estaciones en línea</div>
           <div class="kpi-value"><span id="kpiOnline">–</span></div>
-          <div class="kpi-sub" id="kpiOnlineSub">Conectando…</div>
+          <div class="kpi-sub" id="kpiOnlineSub">Iniciando…</div>
         </div>
         <div class="kpi">
           <div class="kpi-label">Muestras recibidas</div>
@@ -44,10 +47,10 @@
           <div class="kpi-value"><span id="kpiLag">–</span></div>
           <div class="kpi-sub" id="kpiLagSub">Estación seleccionada</div>
         </div>
-        <div class="kpi">
-          <div class="kpi-label">Eventos confirmados</div>
-          <div class="kpi-value"><span id="kpiEvents">0</span></div>
-          <div class="kpi-sub" id="kpiEventsSub">En esta sesión del navegador</div>
+        <div class="kpi kpi-eew" id="kpiEewBox">
+          <div class="kpi-label">Alerta temprana</div>
+          <div class="kpi-value"><span id="kpiEew">Sin sismos</span></div>
+          <div class="kpi-sub" id="kpiEewSub">Esperando detección</div>
         </div>
       </div>
     </div>
@@ -55,8 +58,8 @@
 
   <div class="statusbar">
     <div class="wrap statusbar-inner">
-      <span class="dot" id="apiDot"></span>
-      <span id="apiStatus">Conectando con la API…</span>
+      <span class="dot ok" id="apiDot"></span>
+      <span id="apiStatus">Modo simulación</span>
       <span class="statusbar-right" id="apiMeta"></span>
     </div>
   </div>
@@ -66,10 +69,14 @@
     <section class="card map-card">
       <div class="card-head">
         <div>
-          <h2>Estaciones</h2>
-          <p>Ubicación del sitio de cada estación. Haz clic en una para ver su detalle.</p>
+          <h2>Mapa de la red</h2>
+          <p>Círculo = SHM · Rombo = P-Alert. Durante un sismo se dibujan el epicentro y el avance de las ondas P (azul) y S (rojo).</p>
         </div>
-        <button class="btn" id="btnFit">Ver todas</button>
+        <div class="controls">
+          <button class="btn" id="btnTij">Tijuana</button>
+          <button class="btn" id="btnGro">Guerrero</button>
+          <button class="btn" id="btnFit">Todo</button>
+        </div>
       </div>
       <div id="map" role="region" aria-label="Mapa de estaciones"></div>
       <div class="legend">
@@ -77,14 +84,16 @@
         <span><i class="st observacion"></i>Observación</span>
         <span><i class="st alerta"></i>Alerta</span>
         <span><i class="st sin_conexion"></i>Sin conexión</span>
+        <span><i class="lg-star">✶</i>Epicentro simulado</span>
+        <span><i class="lg-est">✚</i>Epicentro estimado por la red</span>
       </div>
     </section>
 
-    <!-- Detalle de estación -->
-    <aside class="card detail-card" id="detail">
+    <!-- Detalle -->
+    <aside class="card detail-card">
       <div class="card-head">
         <div>
-          <div class="small-label">Estación seleccionada</div>
+          <div class="small-label" id="dKind">Estación seleccionada</div>
           <h2 id="dName">–</h2>
           <p id="dMeta">–</p>
         </div>
@@ -93,21 +102,65 @@
       <ul class="reasons" id="dReasons"></ul>
       <div class="metrics">
         <div class="metric"><span>Última muestra</span><b id="dLast">–</b><em id="dLastAgo"></em></div>
-        <div class="metric"><span>Retraso</span><b id="dLag">–</b><em>de la Raspberry al navegador</em></div>
+        <div class="metric"><span>Retraso</span><b id="dLag">–</b><em>del sensor al panel</em></div>
         <div class="metric"><span>Muestreo real</span><b id="dFs">–</b><em id="dFsSub"></em></div>
         <div class="metric"><span>Completitud</span><b id="dComp">–</b><em id="dCompSub"></em></div>
         <div class="metric"><span>RMS dinámico</span><b id="dRms">–</b><em>últimos 10 s, sin gravedad</em></div>
-        <div class="metric"><span>Pico (PGA)</span><b id="dPga">–</b><em>últimos 10 s, sin gravedad</em></div>
-        <div class="metric"><span>Frecuencia dominante</span><b id="dFreq">–</b><em id="dFreqSub"></em></div>
-        <div class="metric"><span>Sensores reportando</span><b id="dSensors">–</b><em id="dSensorsSub"></em></div>
+        <div class="metric"><span>Pico (PGA)</span><b id="dPga">–</b><em id="dPgaSub">últimos 10 s</em></div>
+        <div class="metric"><span id="dM7L">Frecuencia dominante</span><b id="dM7">–</b><em id="dM7Sub"></em></div>
+        <div class="metric"><span id="dM8L">Sensores reportando</span><b id="dM8">–</b><em id="dM8Sub"></em></div>
       </div>
       <div class="sensor-chips" id="dChips"></div>
       <details class="raw">
         <summary>Último registro recibido (JSON)</summary>
         <pre id="dRaw">{}</pre>
       </details>
-      <p class="fine" id="dTime"></p>
     </aside>
+
+    <!-- Simulador de sismos -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Simulador de sismos</h2>
+          <p>Elige zona, escenario y magnitud. Las ondas llegan a cada sensor según su distancia al epicentro.</p>
+        </div>
+      </div>
+      <div class="quake-form">
+        <label><span>Zona</span>
+          <select id="qNet"><option value="tijuana">Tijuana</option><option value="guerrero">Guerrero</option></select>
+        </label>
+        <label><span>Escenario</span><select id="qScenario"></select></label>
+        <label class="mag"><span>Magnitud <output id="qMagOut">5.5</output></span>
+          <input type="range" id="qMag" min="3" max="7.8" step="0.1" value="5.5" />
+        </label>
+        <div class="quake-actions">
+          <button class="btn primary big" id="btnQuake">Simular sismo</button>
+          <label class="check"><input type="checkbox" id="qAuto" checked /> <span>Sismos pequeños automáticos</span></label>
+          <span class="fine-inline" id="qAutoNext"></span>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="mini">
+          <thead><tr><th>Hora</th><th>Zona / escenario</th><th>M real</th><th>Estimación de la red</th></tr></thead>
+          <tbody id="quakeList"><tr><td colspan="4">Todavía no hay sismos simulados.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Alerta temprana -->
+    <section class="card eew-card">
+      <div class="card-head">
+        <div>
+          <h2>Alerta temprana y localización</h2>
+          <p>La red detecta la onda P, estima epicentro y magnitud, y calcula cuántos segundos faltan para que llegue la onda S a cada sitio.</p>
+        </div>
+        <div class="seg" role="tablist">
+          <button class="seg-btn active" data-net="tijuana" role="tab">Tijuana</button>
+          <button class="seg-btn" data-net="guerrero" role="tab">Guerrero</button>
+        </div>
+      </div>
+      <div id="eewBox" class="eew"></div>
+    </section>
 
     <!-- Señal -->
     <section class="card span-2">
@@ -138,14 +191,13 @@
       <div class="card-head">
         <div>
           <h2>Espectro de frecuencias</h2>
-          <p id="specHint">FFT con ventana Hann de la estación y vista seleccionadas.</p>
+          <p id="specHint">FFT con ventana Hann.</p>
         </div>
         <label class="controls"><span>Hasta</span>
           <select id="specMax">
             <option value="10">10 Hz</option>
             <option value="25" selected>25 Hz</option>
             <option value="50">50 Hz</option>
-            <option value="75">75 Hz</option>
           </select>
         </label>
       </div>
@@ -156,8 +208,8 @@
     <section class="card">
       <div class="card-head">
         <div>
-          <h2>Detección de eventos (STA/LTA)</h2>
-          <p>Un evento se confirma cuando lo detectan 2 o más sensores de la misma estación a la vez.</p>
+          <h2>Detección STA/LTA de la estación</h2>
+          <p>Se calcula sobre la señal unificada. Una detección se confirma cuando la misma onda llega a 3 o más sitios de la red.</p>
         </div>
       </div>
       <div class="chart-box short"><canvas id="staltaChart"></canvas></div>
@@ -168,21 +220,21 @@
         <label><span>Fin</span><input type="number" id="cfgOff" min="1" max="10" step="0.1" value="1.5" /></label>
         <button class="btn" id="btnClearEvents">Limpiar</button>
       </div>
-      <div class="events" id="eventsList"><div class="event empty">Sin eventos todavía. La detección necesita unos 30 s de señal continua para calibrarse.</div></div>
+      <div class="events" id="eventsList"></div>
     </section>
 
-    <!-- Salud de datos -->
+    <!-- Salud -->
     <section class="card">
       <div class="card-head">
         <div>
           <h2>Salud de la transmisión</h2>
-          <p>Muestras que llegaron al servidor por segundo. Las barras bajas indican datos que se perdieron en el envío.</p>
+          <p>Ciclos que llegaron por segundo. Abajo, cada sensor interno: completitud su desfase de calibración frente a los otros dos (se compensa) y su diferencia dinámica.</p>
         </div>
       </div>
       <div class="chart-box short"><canvas id="rateChart"></canvas></div>
       <div class="table-scroll">
         <table class="mini">
-          <thead><tr><th>Sensor</th><th>Muestreo</th><th>Completitud</th><th>Huecos</th><th>RMS dinámico</th><th>Último dato</th></tr></thead>
+          <thead><tr><th>Señal</th><th>Muestreo</th><th>Completitud</th><th>Huecos (10 s)</th><th>Desfase / diferencia</th><th>RMS dinámico</th></tr></thead>
           <tbody id="sensorTable"></tbody>
         </table>
       </div>
@@ -193,13 +245,13 @@
       <div class="card-head">
         <div>
           <h2>Descargar datos</h2>
-          <p>Registros guardados en el servidor para la estación seleccionada.</p>
+          <p>Registros simulados de la estación seleccionada (hay 3 horas de historial).</p>
         </div>
       </div>
       <div class="export">
         <label><span>Desde</span><input type="datetime-local" id="exStart" step="1" /></label>
         <label><span>Hasta</span><input type="datetime-local" id="exEnd" step="1" /></label>
-        <label><span>Sensor</span><select id="exSensor"><option value="">Todos</option></select></label>
+        <label><span>Señal</span><select id="exSensor"><option value="__unit">SHM unificado</option></select></label>
         <label><span>Resolución</span>
           <select id="exStep">
             <option value="0">Todas las muestras</option>
@@ -225,7 +277,6 @@
           <button class="btn" id="btnXlsx">Descargar Excel</button>
           <button class="btn danger" id="btnCancel" hidden>Cancelar</button>
         </div>
-        <p class="fine">Las horas se escriben en tu hora local. Los valores están en g, como los manda la Raspberry.</p>
       </div>
     </section>
 
@@ -234,12 +285,18 @@
       <div class="card-head">
         <div>
           <h2>Todas las estaciones</h2>
-          <p>Estado de cada dispositivo registrado en la API.</p>
+          <p>Haz clic en una fila para ver su detalle.</p>
+        </div>
+        <div class="controls">
+          <label><span>Zona</span><select id="fNet"><option value="">Todas</option><option value="tijuana">Tijuana</option><option value="guerrero">Guerrero</option></select></label>
+          <label><span>Tipo</span><select id="fKind"><option value="">Todos</option><option value="shm">SHM</option><option value="palert">P-Alert</option></select></label>
+          <label><span>Estado</span><select id="fStatus"><option value="">Todos</option><option value="activo">Activa</option><option value="observacion">Observación</option><option value="alerta">Alerta</option><option value="sin_conexion">Sin conexión</option></select></label>
+          <span class="count-pill" id="fCount"></span>
         </div>
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Estación</th><th>Ubicación</th><th>Estado</th><th>Última muestra</th><th>Retraso</th><th>Muestras/s</th><th>Completitud</th><th>RMS dinámico</th><th>PGA 10 s</th><th>Eventos</th></tr></thead>
+          <thead><tr><th>Estación</th><th>Tipo</th><th>Estado</th><th>Última muestra</th><th>Retraso</th><th>Muestras/s</th><th>Completitud</th><th>RMS dinámico</th><th>PGA 10 s</th><th>Intensidad</th><th>Eventos</th></tr></thead>
           <tbody id="stationTable"></tbody>
         </table>
       </div>
@@ -247,10 +304,11 @@
   </main>
 
   <footer class="wrap footer">
-    <p><b>Unidades:</b> aceleración en mg (milésimas de g); 1 mg = 0.00981 m/s². "Sin gravedad" resta el promedio de la ventana a cada eje.
-    <b>Tiempo:</b> la hora de cada muestra es la hora en que la Raspberry la leyó; si la guarda sin zona horaria, el panel detecta la diferencia con UTC automáticamente.</p>
+    <p><b>Simulación:</b> ruido ambiental, modo de vibración de cada edificio, pérdida de muestras, retraso de transmisión y sismos con ondas P (6.5 km/s) y S (3.7 km/s). La atenuación usa una relación simple de demostración, no un modelo calibrado.
+    <b>Unidades:</b> mg (milésimas de g) y gal (cm/s²); 1 mg ≈ 0.981 gal. Intensidad en la escala de 0 a 7 que usa P-Alert (CWA).</p>
   </footer>
 
-  <script type="module" src="./main.js"></script>
+  <script src="./sim.js" defer></script>
+  <script src="./main.js" defer></script>
 </body>
 </html>
