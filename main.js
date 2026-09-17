@@ -16,7 +16,11 @@ let selectedId = null;
 const FALLBACK_CENTER = [23.6, -102.5];
 
 // ───────────────────────── Datos reales (red sísmica UABC) ─────────────────────────
-const REAL_API_BASE = 'https://retriever-1031456939583.us-west2.run.app';
+// La API real no manda encabezados CORS, así que el navegador bloquea un fetch() directo
+// desde otro origen. Por eso todas las llamadas pasan por /api/proxy (función serverless
+// de Vercel, ver api/proxy.js), que reenvía la petición desde el servidor sin esa
+// restricción. Esto solo funciona desplegado en Vercel (o con `vercel dev` en local);
+// abrir index.html directo o con un servidor estático simple no expone /api/proxy.
 const REAL_POLL_MS = 4000;
 let realPolling = false;
 // La API real no expone GPS; usamos la ubicación conocida de cada estación como referencia
@@ -38,7 +42,11 @@ const realDeviceIds = new Set(Object.keys(REAL_DEVICE_INFO));
 function now(){ return new Date().toLocaleTimeString('es-MX',{hour12:false}); }
 function setText(id,v){ const el=$(id); if(el) el.textContent=v; }
 
-// ── HTTP contra la API real ──
+// ── HTTP contra la API real, vía /api/proxy (evita el bloqueo por CORS) ──
+function proxyUrl(path, params={}){
+  const qs = new URLSearchParams({ path, ...params });
+  return `/api/proxy?${qs.toString()}`;
+}
 async function httpGetJson(url){
   try{
     const res = await fetch(url, { headers:{ Accept:'application/json' } });
@@ -50,7 +58,7 @@ async function httpGetJson(url){
   }
 }
 async function fetchRealDeviceList(){
-  const { status, json } = await httpGetJson(`${REAL_API_BASE}/dispositivos`);
+  const { status, json } = await httpGetJson(proxyUrl('/dispositivos'));
   const list = (status===200 && json && Array.isArray(json.dispositivos)) ? json.dispositivos : [];
   // Solo comparamos contra dispositivos conocidos: la API no trae GPS, así que un
   // dispositivo desconocido no tendría dónde ubicarse en el mapa.
@@ -58,20 +66,20 @@ async function fetchRealDeviceList(){
   return known.length ? known : Array.from(realDeviceIds);
 }
 async function fetchRealLatest(deviceId, sinceIso){
-  const params = new URLSearchParams({ device_id:deviceId, limit:'1000', orden: sinceIso?'asc':'desc' });
-  if(sinceIso) params.set('fecha_inicio', sinceIso);
-  const { status, json } = await httpGetJson(`${REAL_API_BASE}/registros?${params.toString()}`);
+  const params = { device_id:deviceId, limit:'1000', orden: sinceIso?'asc':'desc' };
+  if(sinceIso) params.fecha_inicio = sinceIso;
+  const { status, json } = await httpGetJson(proxyUrl('/registros', params));
   return (status===200 && json && Array.isArray(json.registros)) ? json.registros : [];
 }
 async function fetchRealHistory(deviceId, start, end, maxRecords=50000){
   let out = [], offset = 0;
   const limit = 1000;
   for(let page=0; page<Math.ceil(maxRecords/limit); page++){
-    const params = new URLSearchParams({
+    const params = {
       device_id:deviceId, fecha_inicio:start.toISOString(), fecha_fin:end.toISOString(),
       orden:'asc', limit:String(limit), offset:String(offset)
-    });
-    const { status, json } = await httpGetJson(`${REAL_API_BASE}/registros?${params.toString()}`);
+    };
+    const { status, json } = await httpGetJson(proxyUrl('/registros', params));
     if(status!==200 || !json || !Array.isArray(json.registros)) break;
     out = out.concat(json.registros);
     if(json.registros.length < limit) break;
