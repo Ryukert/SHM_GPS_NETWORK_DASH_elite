@@ -2,9 +2,9 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>SIMULACIÓN · Red SHM + P-Alert · MIIDT</title>
+  <title>SIMULACIÓN · Red FCITEC-UABC · SHM + P-Alert</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="Simulación de una red de monitoreo estructural (SHM) y alerta temprana P-Alert en planteles COBACH de Tijuana y edificios de Guerrero." />
+  <meta name="description" content="Red FCITEC-UABC: simulación de monitoreo estructural (SHM) y acelerógrafos P-Alert en planteles COBACH de Tijuana y edificios de Guerrero." />
   <meta name="theme-color" content="#0f172a" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -21,11 +21,11 @@
     <div class="wrap">
       <div class="brand-row">
         <div class="brand-left">
-          <div class="logo-box"><img src="./assets/miidt.png" alt="MIIDT" /></div>
+          <div class="logo-box"><img src="./assets/fcitec.png" alt="FCITEC-UABC" onerror="this.onerror=null;this.src='./assets/miidt.png'" /></div>
           <div>
-            <div class="eyebrow">Universidad Autónoma de Guerrero · MIIDT · Demostración</div>
-            <h1>Red SHM + P-Alert</h1>
-            <p>Tijuana: 10 planteles COBACH, cada uno con una unidad SHM y un P-Alert trabajando a la vez. Guerrero: 10 edificios con una unidad SHM. Cada SHM combina sus 3 sensores internos en una sola medición. Simula sismos y observa cómo los detecta la red.</p>
+            <div class="eyebrow">FCITEC · Universidad Autónoma de Baja California · Demostración</div>
+            <h1>Red FCITEC-UABC</h1>
+            <p>Monitoreo SHM y P-Alert. Tijuana: 10 planteles COBACH con una unidad SHM y un P-Alert cada uno. Guerrero: 10 edificios con una unidad SHM. Las estaciones se colorean según la aceleración que registran.</p>
           </div>
         </div>
         <img class="partner" src="./assets/uagro.png" alt="UAGro" />
@@ -47,10 +47,10 @@
           <div class="kpi-value"><span id="kpiLag">–</span></div>
           <div class="kpi-sub" id="kpiLagSub">Estación seleccionada</div>
         </div>
-        <div class="kpi kpi-eew" id="kpiEewBox">
-          <div class="kpi-label">Alerta temprana</div>
-          <div class="kpi-value"><span id="kpiEew">Sin sismos</span></div>
-          <div class="kpi-sub" id="kpiEewSub">Esperando detección</div>
+        <div class="kpi kpi-acc" id="kpiAccBox">
+          <div class="kpi-label">Aceleración máxima (60 s)</div>
+          <div class="kpi-value"><span id="kpiAcc">–</span></div>
+          <div class="kpi-sub" id="kpiAccSub">–</div>
         </div>
       </div>
     </div>
@@ -70,7 +70,7 @@
       <div class="card-head">
         <div>
           <h2>Mapa de la red</h2>
-          <p>Círculo = SHM · Rombo = P-Alert. Durante un sismo se dibujan el epicentro y el avance de las ondas P (azul) y S (rojo).</p>
+          <p>Cada estación se colorea según la aceleración máxima que registró en el último minuto.</p>
         </div>
         <div class="controls">
           <button class="btn" id="btnTij">Tijuana</button>
@@ -80,12 +80,15 @@
       </div>
       <div id="map" role="region" aria-label="Mapa de estaciones"></div>
       <div class="legend">
-        <span><i class="st activo"></i>Activa</span>
-        <span><i class="st observacion"></i>Observación</span>
-        <span><i class="st alerta"></i>Alerta</span>
-        <span><i class="st sin_conexion"></i>Sin conexión</span>
-        <span><i class="lg-star">✶</i>Epicentro simulado</span>
-        <span><i class="lg-est">✚</i>Epicentro estimado por la red</span>
+        <span><i class="lg-shape">●</i>SHM</span>
+        <span><i class="lg-shape">◆</i>P-Alert</span>
+        <span class="lg-sep"></span>
+        <span><i class="st lvl-none"></i>Sin detección <small id="lgNone"></small></span>
+        <span><i class="st lvl-verde"></i>Verde <small id="lgVerde"></small></span>
+        <span><i class="st lvl-amarillo"></i>Amarillo <small id="lgAmarillo"></small></span>
+        <span><i class="st lvl-rojo"></i>Rojo <small id="lgRojo"></small></span>
+        <span><i class="st lvl-off"></i>Sin conexión</span>
+        <span><i class="lg-star">✶</i>Epicentro oficial (SSN/USGS)</span>
       </div>
     </section>
 
@@ -105,8 +108,8 @@
         <div class="metric"><span>Retraso</span><b id="dLag">–</b><em>del sensor al panel</em></div>
         <div class="metric"><span>Muestreo real</span><b id="dFs">–</b><em id="dFsSub"></em></div>
         <div class="metric"><span>Completitud</span><b id="dComp">–</b><em id="dCompSub"></em></div>
-        <div class="metric"><span>RMS dinámico</span><b id="dRms">–</b><em>últimos 10 s, sin gravedad</em></div>
-        <div class="metric"><span>Pico (PGA)</span><b id="dPga">–</b><em id="dPgaSub">últimos 10 s</em></div>
+        <div class="metric"><span>Aceleración actual</span><b id="dRms">–</b><em>pico de los últimos 10 s, sin gravedad</em></div>
+        <div class="metric"><span>Pico retenido</span><b id="dPga">–</b><em id="dPgaSub">últimos 60 s</em></div>
         <div class="metric"><span id="dM7L">Frecuencia dominante</span><b id="dM7">–</b><em id="dM7Sub"></em></div>
         <div class="metric"><span id="dM8L">Sensores reportando</span><b id="dM8">–</b><em id="dM8Sub"></em></div>
       </div>
@@ -122,7 +125,7 @@
       <div class="card-head">
         <div>
           <h2>Simulador de sismos</h2>
-          <p>Elige zona, escenario y magnitud. Las ondas llegan a cada sensor según su distancia al epicentro.</p>
+          <p>Herramienta de demostración. Las ondas llegan a cada estación según su distancia. El epicentro solo aparece cuando llega el reporte oficial simulado, 45 s después.</p>
         </div>
       </div>
       <div class="quake-form">
@@ -141,25 +144,33 @@
       </div>
       <div class="table-scroll">
         <table class="mini">
-          <thead><tr><th>Hora</th><th>Zona / escenario</th><th>M real</th><th>Estimación de la red</th></tr></thead>
-          <tbody id="quakeList"><tr><td colspan="4">Todavía no hay sismos simulados.</td></tr></tbody>
+          <thead><tr><th>Hora</th><th>Zona / escenario</th><th>M</th><th>Detección por umbral</th><th>Reporte oficial</th></tr></thead>
+          <tbody id="quakeList"><tr><td colspan="5">Todavía no hay sismos simulados.</td></tr></tbody>
         </table>
       </div>
     </section>
 
-    <!-- Alerta temprana -->
+    <!-- Detección por umbral -->
     <section class="card eew-card">
       <div class="card-head">
         <div>
-          <h2>Alerta temprana y localización</h2>
-          <p>La red detecta la onda P, estima epicentro y magnitud, y calcula cuántos segundos faltan para que llegue la onda S a cada sitio.</p>
+          <h2>Detección por umbral de aceleración</h2>
+          <p>Una estación detecta cuando supera el umbral. Aquí se ve en qué orden y con qué aceleración lo fueron haciendo.</p>
         </div>
         <div class="seg" role="tablist">
           <button class="seg-btn active" data-net="tijuana" role="tab">Tijuana</button>
           <button class="seg-btn" data-net="guerrero" role="tab">Guerrero</button>
         </div>
       </div>
-      <div id="eewBox" class="eew"></div>
+      <div class="thresholds">
+        <label><span>Detección desde</span><input type="number" id="thDet" min="1" step="1" /><em>gal</em></label>
+        <label><span><i class="st lvl-amarillo"></i>Amarillo desde</span><input type="number" id="thYellow" min="1" step="1" /><em>gal</em></label>
+        <label><span><i class="st lvl-rojo"></i>Rojo desde</span><input type="number" id="thRed" min="1" step="1" /><em>gal</em></label>
+        <button class="btn" id="btnThReset">Valores iniciales</button>
+        <label class="check"><input type="checkbox" id="showOfficial" checked /> <span>Epicentros oficiales</span></label>
+        <p class="fine-inline" id="thMsg" role="alert"></p>
+      </div>
+      <div id="detBox" class="eew"></div>
     </section>
 
     <!-- Señal -->
@@ -209,7 +220,7 @@
       <div class="card-head">
         <div>
           <h2>Detección STA/LTA de la estación</h2>
-          <p>Se calcula sobre la señal unificada. Una detección se confirma cuando la misma onda llega a 3 o más sitios de la red.</p>
+          <p>Detección complementaria sobre la señal unificada. Se marca en rojo cuando coincide con una detección de red (3 o más estaciones sobre el umbral).</p>
         </div>
       </div>
       <div class="chart-box short"><canvas id="staltaChart"></canvas></div>
@@ -234,7 +245,7 @@
       <div class="chart-box short"><canvas id="rateChart"></canvas></div>
       <div class="table-scroll">
         <table class="mini">
-          <thead><tr><th>Señal</th><th>Muestreo</th><th>Completitud</th><th>Huecos (10 s)</th><th>Desfase / diferencia</th><th>RMS dinámico</th></tr></thead>
+          <thead><tr><th>Señal</th><th>Muestreo</th><th>Completitud</th><th>Huecos (10 s)</th><th>Desfase / diferencia</th><th>RMS</th></tr></thead>
           <tbody id="sensorTable"></tbody>
         </table>
       </div>
@@ -290,13 +301,13 @@
         <div class="controls">
           <label><span>Zona</span><select id="fNet"><option value="">Todas</option><option value="tijuana">Tijuana</option><option value="guerrero">Guerrero</option></select></label>
           <label><span>Tipo</span><select id="fKind"><option value="">Todos</option><option value="shm">SHM</option><option value="palert">P-Alert</option></select></label>
-          <label><span>Estado</span><select id="fStatus"><option value="">Todos</option><option value="activo">Activa</option><option value="observacion">Observación</option><option value="alerta">Alerta</option><option value="sin_conexion">Sin conexión</option></select></label>
+          <label><span>Nivel</span><select id="fStatus"><option value="">Todos</option><option value="none">Sin detección</option><option value="verde">Verde</option><option value="amarillo">Amarillo</option><option value="rojo">Rojo</option><option value="off">Sin conexión</option></select></label>
           <span class="count-pill" id="fCount"></span>
         </div>
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Estación</th><th>Tipo</th><th>Estado</th><th>Última muestra</th><th>Retraso</th><th>Muestras/s</th><th>Completitud</th><th>RMS dinámico</th><th>PGA 10 s</th><th>Intensidad</th><th>Eventos</th></tr></thead>
+          <thead><tr><th>Estación</th><th>Tipo</th><th>Nivel</th><th>Pico 60 s</th><th>Actual</th><th>Salud</th><th>Última muestra</th><th>Retraso</th><th>Completitud</th><th>Intensidad</th></tr></thead>
           <tbody id="stationTable"></tbody>
         </table>
       </div>
@@ -304,8 +315,8 @@
   </main>
 
   <footer class="wrap footer">
-    <p><b>Simulación:</b> ruido ambiental, modo de vibración de cada edificio, pérdida de muestras, retraso de transmisión y sismos con ondas P (6.5 km/s) y S (3.7 km/s). La atenuación usa una relación simple de demostración, no un modelo calibrado.
-    <b>Unidades:</b> mg (milésimas de g) y gal (cm/s²); 1 mg ≈ 0.981 gal. Intensidad en la escala de 0 a 7 que usa P-Alert (CWA).</p>
+    <p><b>Red FCITEC-UABC · Simulación:</b> ruido de cada sensor, modo de vibración de cada edificio, pérdida de muestras, retraso de transmisión y sismos con ondas P y S. La atenuación usa una relación simple de demostración, no un modelo calibrado.
+    <b>Unidades:</b> gal = cm/s² (1 g = 981 gal), aceleración dinámica sin gravedad. <b>Epicentros:</b> la red no los calcula; solo se muestran los publicados por fuentes oficiales.</p>
   </footer>
 
   <script src="./sim.js" defer></script>

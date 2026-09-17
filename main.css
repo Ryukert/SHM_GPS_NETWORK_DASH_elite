@@ -208,3 +208,47 @@ td.num{text-align:right}
 @media (max-width:640px){.quake-form{grid-template-columns:1fr}}
 
 .unit-row td{background:#e8f0fa;font-weight:600}
+
+
+/* ── Niveles de aceleración (FCITEC-UABC) ── */
+:root{--lv-none:#3b82f6;--lv-verde:#16a34a;--lv-amarillo:#eab308;--lv-rojo:#dc2626;--lv-off:#94a3b8}
+i.st.lvl-none,.marker.lvl-none{background:var(--lv-none)}
+i.st.lvl-verde,.marker.lvl-verde{background:var(--lv-verde)}
+i.st.lvl-amarillo,.marker.lvl-amarillo{background:var(--lv-amarillo)}
+i.st.lvl-rojo,.marker.lvl-rojo{background:var(--lv-rojo)}
+i.st.lvl-off{background:#fff;border:2px solid var(--lv-off);box-sizing:border-box}
+.marker.lvl-off{background:#e2e8f0;border-color:#94a3b8;border-style:dashed;box-shadow:none}
+.marker.lvl-rojo{animation:pulse 1.2s ease-out infinite}
+.marker.lvl-amarillo{box-shadow:0 0 0 4px rgba(234,179,8,.35),0 3px 10px rgba(15,23,42,.35)}
+.badge.lvl-none,.tag.lvl-none{background:#dbeafe;color:#1e3a8a}
+.badge.lvl-verde,.tag.lvl-verde{background:#dcfce7;color:#166534}
+.badge.lvl-amarillo,.tag.lvl-amarillo{background:#fef9c3;color:#854d0e}
+.badge.lvl-rojo,.tag.lvl-rojo{background:#fee2e2;color:#991b1b}
+.badge.lvl-off,.tag.lvl-off{background:#e2e8f0;color:#334155}
+.lg-shape{font-style:normal;margin-right:5px;color:#334155}
+.lg-sep{width:1px;align-self:stretch;background:var(--line)}
+.legend small{color:var(--muted)}
+.kpi-acc.lvl-verde{background:rgba(22,163,74,.35)}
+.kpi-acc.lvl-amarillo{background:rgba(234,179,8,.4)}
+.kpi-acc.lvl-rojo{background:rgba(220,38,38,.5);animation:kpiPulse 1.4s ease-in-out infinite}
+.epi-official{font-size:26px;line-height:26px;color:#111827;text-shadow:0 0 3px #fff,0 0 6px #fff}
+.epi-official.sim{color:#7c2d12}
+.thresholds{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;padding:0 18px 12px}
+.thresholds label{display:flex;flex-direction:column;gap:4px}
+.thresholds label>span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;display:flex;align-items:center;gap:5px}
+.thresholds label i.st{width:9px;height:9px;border-radius:50%;display:inline-block}
+.thresholds input[type=number]{width:90px}
+.thresholds em{font-style:normal;color:var(--muted);font-size:12px}
+.thresholds .check{flex-direction:row;align-items:center;gap:6px}
+.thresholds .check span{text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink);font-weight:500}
+.thresholds #thMsg{flex-basis:100%;margin:0;color:var(--bad-ink)}
+.det-head{border-radius:12px;padding:12px 14px;margin-bottom:10px;border:1px solid var(--line)}
+.det-head .big{font-size:18px;font-weight:750;display:block}
+.det-head small{display:block;font-size:13px;margin-top:2px}
+.det-head.lvl-verde{background:#dcfce7;color:#166534;border-color:#bbf7d0}
+.det-head.lvl-amarillo{background:#fef9c3;color:#854d0e;border-color:#fde68a}
+.det-head.lvl-rojo{background:#fee2e2;color:#991b1b;border-color:#fecaca}
+#detBox tr[data-id]{cursor:pointer}
+#detBox tr[data-id]:hover{background:var(--soft)}
+.off-title{margin:14px 0 6px;font-size:13px;color:var(--blue)}
+.off-list{margin:0;padding-left:18px;font-size:13px;display:grid;gap:3px}
