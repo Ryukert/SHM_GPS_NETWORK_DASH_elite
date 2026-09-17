@@ -2,137 +2,254 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>MIIDT – Red SHM-GPS en vivo</title>
+  <title>MIIDT · Red SHM en vivo</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="Dashboard web de monitoreo en vivo de la red de sensores sísmicos SHM-IoT georreferenciados, con datos reales de la API Retriever." />
+  <meta name="description" content="Monitoreo en vivo de la red de sensores SHM: señal, espectro, detección STA/LTA y salud de datos por estación, con datos reales de la API Retriever." />
+  <meta name="theme-color" content="#0f172a" />
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
   <link rel="stylesheet" href="./main.css" />
 </head>
 <body>
   <header class="hero">
-    <div class="wrap hero-inner">
+    <div class="wrap">
       <div class="brand-row">
         <div class="brand-left">
           <div class="logo-box"><img src="./assets/miidt.png" alt="MIIDT" /></div>
           <div>
-            <div class="eyebrow">Universidad Autónoma de Guerrero · MIIDT · Datos en vivo</div>
-            <h1>Red SHM-IoT Georreferenciada</h1>
-            <p>Monitoreo estructural en vivo con datos reales de la API Retriever: RMS, frecuencia dominante (FFT) y detección de eventos (STA/LTA) por estación.</p>
+            <div class="eyebrow">Universidad Autónoma de Guerrero · MIIDT</div>
+            <h1>Red SHM-IoT en vivo</h1>
+            <p>Señal de aceleración, espectro, detección de eventos STA/LTA y salud de la transmisión de cada estación, con datos reales de la API Retriever.</p>
           </div>
         </div>
-        <div class="brand-right">
-          <span class="pill">Vercel Static</span>
-          <span class="pill">Datos en vivo</span>
-          <span class="pill">STA/LTA</span>
-          <span class="pill">FFT/RMS</span>
-          <img src="./assets/uagro.png" alt="UAGro" />
-        </div>
+        <img class="partner" src="./assets/uagro.png" alt="UAGro" />
       </div>
-      <div class="hero-grid">
-        <div class="hero-panel"><div class="hero-kicker">Estado de la red</div><div class="hero-value" id="networkState">Conectando…</div><div class="hero-sub">Actualización: <b id="heroLastUpdate">-</b></div></div>
-        <div class="hero-panel"><div class="hero-kicker">Estaciones</div><div class="hero-value"><span id="activeNodes">0</span>/<span id="totalNodes">0</span></div><div class="hero-sub">Alertas: <b id="alertNodes">0</b> · Observación: <b id="watchNodes">0</b> · Sin conexión: <b id="offlineNodes">0</b></div></div>
-        <div class="hero-panel"><div class="hero-kicker">Cobertura</div><div class="hero-value"><span id="statesCovered">0</span> estados</div><div class="hero-sub">Región activa: <b id="activeRegionLabel">Todas</b></div></div>
-        <div class="hero-panel"><div class="hero-kicker">Estación seleccionada</div><div class="hero-value" id="heroSelected">-</div><div class="hero-sub">GPS: <b id="heroGpsFix">-</b> · Satélites: <b id="heroSats">-</b></div></div>
+
+      <div class="kpis">
+        <div class="kpi">
+          <div class="kpi-label">Estaciones en línea</div>
+          <div class="kpi-value"><span id="kpiOnline">–</span></div>
+          <div class="kpi-sub" id="kpiOnlineSub">Conectando…</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Muestras recibidas</div>
+          <div class="kpi-value"><span id="kpiRate">–</span><small> /s</small></div>
+          <div class="kpi-sub" id="kpiRateSub">–</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Retraso de los datos</div>
+          <div class="kpi-value"><span id="kpiLag">–</span></div>
+          <div class="kpi-sub" id="kpiLagSub">Estación seleccionada</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Eventos confirmados</div>
+          <div class="kpi-value"><span id="kpiEvents">0</span></div>
+          <div class="kpi-sub" id="kpiEventsSub">En esta sesión del navegador</div>
+        </div>
       </div>
     </div>
   </header>
 
-  <main class="wrap main-grid">
-    <section class="card national-map-card">
-      <div class="section-head">
+  <div class="statusbar">
+    <div class="wrap statusbar-inner">
+      <span class="dot" id="apiDot"></span>
+      <span id="apiStatus">Conectando con la API…</span>
+      <span class="statusbar-right" id="apiMeta"></span>
+    </div>
+  </div>
+
+  <main class="wrap grid">
+    <!-- Mapa -->
+    <section class="card map-card">
+      <div class="card-head">
         <div>
-          <h2>Mapa de estaciones reales</h2>
-          <p>Ubicación aproximada (ciudad/sitio) de cada estación real: UTyP Sierra de Guerrero (Tlacotepec) y las estaciones UABC en Baja California.</p>
+          <h2>Estaciones</h2>
+          <p>Ubicación del sitio de cada estación. Haz clic en una para ver su detalle.</p>
         </div>
-        <div class="status-line"><span class="dot ok"></span><span id="mapStatus">Conectando con la API real…</span></div>
+        <button class="btn" id="btnFit">Ver todas</button>
       </div>
-      <div class="toolbar">
-        <label><span>Región</span><select id="regionFilter"><option value="todas">Todas</option><option value="Noroeste">Noroeste</option><option value="Norte">Norte</option><option value="Occidente">Occidente</option><option value="Centro">Centro</option><option value="Sur-Sureste">Sur-Sureste</option></select></label>
-        <label><span>Tipo</span><select id="typeFilter"><option value="todos">Todos</option><option value="Puente">Puentes</option><option value="Edificio">Edificios</option><option value="Talud">Taludes</option><option value="Presa">Presas</option><option value="Laboratorio">Laboratorios</option><option value="Patrimonio">Patrimonio</option></select></label>
-        <label><span>Estado</span><select id="statusFilter"><option value="todos">Todos</option><option value="activo">Activo</option><option value="observacion">Observación</option><option value="alerta">Alerta</option><option value="sin_conexion">Sin conexión</option></select></label>
-        <button class="btn primary" id="btnNationalView">Ver todas las estaciones</button>
+      <div id="map" role="region" aria-label="Mapa de estaciones"></div>
+      <div class="legend">
+        <span><i class="st activo"></i>Activa</span>
+        <span><i class="st observacion"></i>Observación</span>
+        <span><i class="st alerta"></i>Alerta</span>
+        <span><i class="st sin_conexion"></i>Sin conexión</span>
       </div>
-      <div id="map"></div>
     </section>
 
-    <aside class="card node-card">
-      <div class="section-head compact"><div><h2>Estación seleccionada</h2><p>Telemetría en vivo calculada sobre los datos reales.</p></div></div>
-      <div class="selected-box">
-        <div class="selected-top"><div><div class="small-label">ID</div><div class="selected-id" id="selectedId">-</div></div><span class="state-badge" id="selectedStatus">-</span></div>
-        <div class="selected-name" id="selectedName">-</div>
-        <div class="selected-meta" id="selectedMeta">-</div>
-      </div>
-      <div class="metric-grid">
-        <div class="metric"><span>RMS X</span><b id="rmsX">-</b></div><div class="metric"><span>RMS Y</span><b id="rmsY">-</b></div><div class="metric"><span>RMS Z</span><b id="rmsZ">-</b></div><div class="metric"><span>RMS global</span><b id="rmsGlobal">-</b></div>
-        <div class="metric"><span>Frecuencia dominante</span><b id="freqDom">-</b></div><div class="metric"><span>Muestreo</span><b id="sampleRate">-</b></div><div class="metric"><span>Batería</span><b id="battery">-</b></div><div class="metric"><span>Satélites</span><b id="satellites">-</b></div>
-      </div>
-      <div class="json-panel"><div class="json-title">Paquete JSON de la estación</div><pre id="jsonPacket">{}</pre></div>
-      <div class="export-range-panel">
-        <div class="export-range-title">Rango de descarga (datos reales)</div>
-        <div class="range-grid">
-          <label><span>Día y hora inicial</span><input type="datetime-local" id="exportStart" /></label>
-          <label><span>Día y hora final</span><input type="datetime-local" id="exportEnd" /></label>
-          <label><span>Intervalo de datos</span>
-            <select id="exportStep">
-              <option value="1">Cada 1 segundo</option>
-              <option value="5" selected>Cada 5 segundos</option>
-              <option value="10">Cada 10 segundos</option>
-              <option value="30">Cada 30 segundos</option>
-              <option value="60">Cada 1 minuto</option>
-              <option value="300">Cada 5 minutos</option>
-            </select>
-          </label>
-          <div class="range-summary">
-            <span>Registros estimados</span>
-            <b id="exportEstimate">-</b>
-          </div>
+    <!-- Detalle de estación -->
+    <aside class="card detail-card" id="detail">
+      <div class="card-head">
+        <div>
+          <div class="small-label">Estación seleccionada</div>
+          <h2 id="dName">–</h2>
+          <p id="dMeta">–</p>
         </div>
-        <p id="exportRangeWarning" class="range-warning"></p>
+        <span class="badge" id="dBadge">–</span>
       </div>
-      <div class="download-actions">
-        <button class="btn primary" id="btnExportSelectedCsv">Descargar CSV real</button>
-        <button class="btn" id="btnExportSelectedExcel">Descargar Excel real</button>
+      <ul class="reasons" id="dReasons"></ul>
+      <div class="metrics">
+        <div class="metric"><span>Última muestra</span><b id="dLast">–</b><em id="dLastAgo"></em></div>
+        <div class="metric"><span>Retraso</span><b id="dLag">–</b><em>de la Raspberry al navegador</em></div>
+        <div class="metric"><span>Muestreo real</span><b id="dFs">–</b><em id="dFsSub"></em></div>
+        <div class="metric"><span>Completitud</span><b id="dComp">–</b><em id="dCompSub"></em></div>
+        <div class="metric"><span>RMS dinámico</span><b id="dRms">–</b><em>últimos 10 s, sin gravedad</em></div>
+        <div class="metric"><span>Pico (PGA)</span><b id="dPga">–</b><em>últimos 10 s, sin gravedad</em></div>
+        <div class="metric"><span>Frecuencia dominante</span><b id="dFreq">–</b><em id="dFreqSub"></em></div>
+        <div class="metric"><span>Sensores reportando</span><b id="dSensors">–</b><em id="dSensorsSub"></em></div>
       </div>
-      <p class="download-note">La descarga trae los registros reales de la API Retriever para la estación seleccionada, en el rango de fecha/hora que elijas (el intervalo de datos no aplica a la descarga real: se trae todo lo que exista en el rango).</p>
+      <div class="sensor-chips" id="dChips"></div>
+      <details class="raw">
+        <summary>Último registro recibido (JSON)</summary>
+        <pre id="dRaw">{}</pre>
+      </details>
+      <p class="fine" id="dTime"></p>
     </aside>
 
-    <section class="card controls-card wide-full">
-      <div class="section-head"><div><h2>Controles</h2><p>La red siempre muestra datos reales, actualizados cada pocos segundos.</p></div></div>
-      <div class="controls-grid">
-        <div class="status-line"><span class="dot ok" id="realStatusDot"></span><span id="realStatus">Conectando con la API real…</span></div>
-        <button class="btn" id="btnClearEvents">Limpiar eventos detectados</button>
-        <button class="btn" id="btnExport">Exportar estado actual (CSV)</button>
+    <!-- Señal -->
+    <section class="card span-2">
+      <div class="card-head">
+        <div>
+          <h2>Señal de aceleración en tiempo real</h2>
+          <p id="signalHint">Las gráficas avanzan solas conforme llegan los datos.</p>
+        </div>
+        <div class="controls">
+          <label><span>Vista</span><select id="signalMode"></select></label>
+          <label><span>Ventana</span>
+            <select id="signalWin">
+              <option value="10">10 s</option>
+              <option value="30" selected>30 s</option>
+              <option value="60">60 s</option>
+              <option value="120">2 min</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="signalCenter" checked /><span>Quitar gravedad</span></label>
+          <button class="btn" id="btnPause" aria-pressed="false">Pausar</button>
+        </div>
+      </div>
+      <div class="chart-box tall"><canvas id="signalChart"></canvas><div class="chart-empty" id="signalEmpty">Esperando datos…</div></div>
+    </section>
+
+    <!-- Espectro -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Espectro de frecuencias</h2>
+          <p id="specHint">FFT con ventana Hann de la estación y vista seleccionadas.</p>
+        </div>
+        <label class="controls"><span>Hasta</span>
+          <select id="specMax">
+            <option value="10">10 Hz</option>
+            <option value="25" selected>25 Hz</option>
+            <option value="50">50 Hz</option>
+            <option value="75">75 Hz</option>
+          </select>
+        </label>
+      </div>
+      <div class="chart-box"><canvas id="specChart"></canvas><div class="chart-empty" id="specEmpty">Se necesitan unos segundos de señal continua.</div></div>
+    </section>
+
+    <!-- STA/LTA -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Detección de eventos (STA/LTA)</h2>
+          <p>Un evento se confirma cuando lo detectan 2 o más sensores de la misma estación a la vez.</p>
+        </div>
+      </div>
+      <div class="chart-box short"><canvas id="staltaChart"></canvas></div>
+      <div class="trigger-cfg">
+        <label><span>STA</span><input type="number" id="cfgSta" min="0.2" max="10" step="0.1" value="1" /><em>s</em></label>
+        <label><span>LTA</span><input type="number" id="cfgLta" min="5" max="120" step="1" value="20" /><em>s</em></label>
+        <label><span>Disparo</span><input type="number" id="cfgOn" min="1.5" max="20" step="0.1" value="3.5" /></label>
+        <label><span>Fin</span><input type="number" id="cfgOff" min="1" max="10" step="0.1" value="1.5" /></label>
+        <button class="btn" id="btnClearEvents">Limpiar</button>
+      </div>
+      <div class="events" id="eventsList"><div class="event empty">Sin eventos todavía. La detección necesita unos 30 s de señal continua para calibrarse.</div></div>
+    </section>
+
+    <!-- Salud de datos -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Salud de la transmisión</h2>
+          <p>Muestras que llegaron al servidor por segundo. Las barras bajas indican datos que se perdieron en el envío.</p>
+        </div>
+      </div>
+      <div class="chart-box short"><canvas id="rateChart"></canvas></div>
+      <div class="table-scroll">
+        <table class="mini">
+          <thead><tr><th>Sensor</th><th>Muestreo</th><th>Completitud</th><th>Huecos</th><th>RMS dinámico</th><th>Último dato</th></tr></thead>
+          <tbody id="sensorTable"></tbody>
+        </table>
       </div>
     </section>
 
-    <section class="card chart-card wide">
-      <div class="section-head"><div><h2>Señal de aceleración real</h2><p>Canales X, Y y Z reales de la estación seleccionada (últimas muestras recibidas).</p></div></div>
-      <div class="chart-wrap"><canvas id="accChart"></canvas></div>
+    <!-- Descarga -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Descargar datos</h2>
+          <p>Registros guardados en el servidor para la estación seleccionada.</p>
+        </div>
+      </div>
+      <div class="export">
+        <label><span>Desde</span><input type="datetime-local" id="exStart" step="1" /></label>
+        <label><span>Hasta</span><input type="datetime-local" id="exEnd" step="1" /></label>
+        <label><span>Sensor</span><select id="exSensor"><option value="">Todos</option></select></label>
+        <label><span>Resolución</span>
+          <select id="exStep">
+            <option value="0">Todas las muestras</option>
+            <option value="0.1">Promedio cada 0.1 s</option>
+            <option value="1">Promedio cada 1 s</option>
+            <option value="10">Promedio cada 10 s</option>
+            <option value="60">Promedio cada 1 min</option>
+          </select>
+        </label>
+        <div class="quick">
+          <span>Rápido:</span>
+          <button class="chip" data-range="60">Último minuto</button>
+          <button class="chip" data-range="600">10 min</button>
+          <button class="chip" data-range="3600">1 hora</button>
+        </div>
+        <div class="estimate" id="exEstimate">–</div>
+        <div class="progress" id="exProgressBox" hidden>
+          <div class="bar"><i id="exBar"></i></div>
+          <span id="exProgress">–</span>
+        </div>
+        <div class="actions">
+          <button class="btn primary" id="btnCsv">Descargar CSV</button>
+          <button class="btn" id="btnXlsx">Descargar Excel</button>
+          <button class="btn danger" id="btnCancel" hidden>Cancelar</button>
+        </div>
+        <p class="fine">Las horas se escriben en tu hora local. Los valores están en g, como los manda la Raspberry.</p>
+      </div>
     </section>
 
-    <section class="card chart-card">
-      <div class="section-head compact"><div><h2>RMS móvil</h2><p>Indicador de intensidad vibratoria real.</p></div></div>
-      <div class="chart-wrap small"><canvas id="rmsChart"></canvas></div>
-      <div class="events-box"><h3>Eventos detectados (STA/LTA)</h3><div id="eventsList" class="events-list"><div class="event-item">Sin eventos detectados todavía.</div></div></div>
-    </section>
-
-    <section class="card stats-card wide-full">
-      <div class="section-head"><div><h2>Resumen por región</h2><p>Distribución de estaciones reales, alertas y RMS promedio por zona del país.</p></div></div>
-      <div id="regionCards" class="region-cards"></div>
-    </section>
-
-    <section class="card table-card wide-full">
-      <div class="section-head"><div><h2>Tabla de estaciones reales</h2><p>Estado y telemetría en vivo de cada estación conectada.</p></div><span class="count-pill" id="visibleCount">0 visibles</span></div>
-      <div class="table-scroll"><table><thead><tr><th>Nodo</th><th>Nombre</th><th>Estado</th><th>Región</th><th>Tipo</th><th>Lat</th><th>Lon</th><th>RMS global</th><th>Frecuencia</th><th>Fs</th><th>Batería</th><th>Condición</th></tr></thead><tbody id="nodesTable"></tbody></table></div>
+    <!-- Tabla -->
+    <section class="card span-2">
+      <div class="card-head">
+        <div>
+          <h2>Todas las estaciones</h2>
+          <p>Estado de cada dispositivo registrado en la API.</p>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Estación</th><th>Ubicación</th><th>Estado</th><th>Última muestra</th><th>Retraso</th><th>Muestras/s</th><th>Completitud</th><th>RMS dinámico</th><th>PGA 10 s</th><th>Eventos</th></tr></thead>
+          <tbody id="stationTable"></tbody>
+        </table>
+      </div>
     </section>
   </main>
+
+  <footer class="wrap footer">
+    <p><b>Unidades:</b> aceleración en mg (milésimas de g); 1 mg = 0.00981 m/s². "Sin gravedad" resta el promedio de la ventana a cada eje.
+    <b>Tiempo:</b> la hora de cada muestra es la hora en que la Raspberry la leyó; si la guarda sin zona horaria, el panel detecta la diferencia con UTC automáticamente.</p>
+  </footer>
 
   <script type="module" src="./main.js"></script>
 </body>
