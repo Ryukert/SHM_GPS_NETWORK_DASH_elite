@@ -10,10 +10,13 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0}
-body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);font-size:15px;line-height:1.45;font-variant-numeric:tabular-nums}
+body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);
+  font-size:clamp(14px,0.45vw + 12.6px,15px);line-height:1.45;font-variant-numeric:tabular-nums;
+  padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0);
+  overflow-x:hidden;-webkit-text-size-adjust:100%}
 button,select,input{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.wrap{width:min(1440px,calc(100% - 32px));margin:0 auto}
+.wrap{width:min(1440px,calc(100% - clamp(16px,3vw,32px)));margin:0 auto}
 
 /* Encabezado */
 .hero{background:linear-gradient(135deg,#0f172a 0%,#1f3a5f 55%,#8c1d18 100%);color:#fff;padding:22px 0 20px}
@@ -62,7 +65,7 @@ select,input[type=number],input[type=datetime-local]{border:1px solid #c9d3de;bo
 
 /* Mapa */
 .map-card{display:flex;flex-direction:column}
-#map{flex:1;min-height:440px;border-top:1px solid var(--line);background:#dbe7f3}
+#map{flex:1;min-height:clamp(300px,48vh,480px);border-top:1px solid var(--line);background:#dbe7f3}
 .legend{display:flex;gap:16px;flex-wrap:wrap;padding:10px 18px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}
 .legend i.st{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
 i.st.activo,.marker.activo{background:var(--ok)} i.st.observacion,.marker.observacion{background:var(--warn)}
@@ -96,8 +99,8 @@ details.raw pre{margin:0;padding:12px;background:#0f172a;color:#dbeafe;font-size
 .fine{margin:0 18px 14px;font-size:12px;color:var(--muted)}
 
 /* Gráficas */
-.chart-box{position:relative;height:290px;padding:0 14px 14px}
-.chart-box.tall{height:360px} .chart-box.short{height:200px}
+.chart-box{position:relative;height:clamp(210px,32vh,290px);padding:0 clamp(6px,1.5vw,14px) 14px}
+.chart-box.tall{height:clamp(240px,42vh,360px)} .chart-box.short{height:clamp(160px,24vh,200px)}
 .chart-empty{position:absolute;inset:0 14px 14px;display:grid;place-items:center;color:var(--muted);font-size:14px;background:rgba(255,255,255,.85);text-align:center;padding:20px}
 .chart-empty[hidden]{display:none}
 
@@ -148,18 +151,63 @@ td.num{text-align:right}
 
 .leaflet-popup-content{font-size:13.5px;line-height:1.45}
 
+/* ── Adaptación a pantallas ── */
 @media (max-width:1080px){
   .grid{grid-template-columns:1fr}
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
-  #map{min-height:360px}
+}
+@media (max-width:820px){
+  .hero{padding:16px 0 16px}
+  .card-head{padding:14px 14px 8px}
+  .card-head h2{font-size:17px}
+  .card-head p{font-size:13px}
+  .metrics,.reasons,.sensor-chips,.fine,details.raw,.thresholds,.quake-form,.export,.events,.table-scroll,.eew{padding-left:14px;padding-right:14px}
+  .metrics{gap:6px}
+  .metric b{font-size:16px}
+  /* Objetivos táctiles cómodos */
+  .btn,.chip,.seg-btn,select,input:not([type=checkbox]):not([type=range]),summary{min-height:44px}
+  input[type=checkbox]{width:22px;height:22px;flex:none}
+  .controls label.check,.thresholds .check,.quake-actions .check{flex:0 0 auto;min-height:44px}
+  .controls label,.thresholds label,.quake-form label,.export label{flex:1 1 150px;min-width:0}
+  .controls select,.controls input:not([type=checkbox]),.thresholds input,.export input,.export select{width:100%}
+  .controls{width:100%}
+  .card-head{flex-direction:column;align-items:stretch}
+  .legend{gap:10px 14px;font-size:12.5px}
 }
 @media (max-width:640px){
-  .brand-row{align-items:flex-start}
-  .partner{display:none}
+  .brand-row{align-items:flex-start;gap:12px}
+  .brand-left{gap:12px}
   .kpis{grid-template-columns:1fr 1fr;gap:8px}
-  .kpi-value{font-size:22px}
+  .kpi{padding:10px 12px}
+  .kpi-value{font-size:20px}
+  .kpi-sub{font-size:12px;white-space:normal}
   .export{grid-template-columns:1fr}
   .statusbar-right{display:none}
+  .logo-box{width:52px;height:52px}
+  .logo-box img{max-width:44px;max-height:44px}
+  h1{font-size:clamp(21px,6vw,28px)}
+  .brand-left p{font-size:13px}
+  .metrics{grid-template-columns:1fr 1fr}
+  .trigger-cfg label{flex:1 1 44%}
+  .trigger-cfg .btn{margin-left:0;width:100%}
+  /* Tablas apiladas: cada fila se vuelve una tarjeta */
+  table.stack thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  table.stack tr{display:block;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;padding:6px 10px;background:#fff}
+  table.stack td{display:flex;justify-content:space-between;gap:12px;border:0;padding:4px 0;white-space:normal;text-align:right}
+  table.stack td::before{content:attr(data-l);color:var(--muted);font-size:12px;font-weight:600;text-align:left;flex:none}
+  table.stack td:first-child{border-bottom:1px solid var(--grid);padding-bottom:6px;margin-bottom:4px;font-size:15px}
+  table.stack td:first-child::before{content:none}
+  table.stack td.num{text-align:right}
+  .table-scroll{overflow-x:visible}
+}
+@media (max-width:360px){
+  .metrics{grid-template-columns:1fr}
+  .kpis{grid-template-columns:1fr}
+}
+@media (hover:none){
+  .events{max-height:none}
+  .marker{width:26px;height:26px}
+  .marker.palert{width:22px;height:22px}
 }
 
 /* ── Simulación ── */
@@ -173,7 +221,7 @@ td.num{text-align:right}
 .lg-est{font-style:normal;color:#dc2626;font-weight:700;margin-right:5px}
 .epi-true{font-size:26px;line-height:26px;color:#111827;text-shadow:0 0 3px #fff,0 0 6px #fff}
 .epi-est{font-size:24px;line-height:24px;color:#dc2626;font-weight:800;text-shadow:0 0 3px #fff,0 0 6px #fff}
-.map-card #map{min-height:480px}
+.map-card #map{min-height:clamp(300px,48vh,480px)}
 
 .quake-form{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;padding:0 18px 12px}
 .quake-form label{display:flex;flex-direction:column;gap:4px}
@@ -267,3 +315,6 @@ i.st.lvl-off{background:#fff;border:2px solid var(--lv-off);box-sizing:border-bo
 .logo-box.wide img{max-width:230px;max-height:46px}
 .logo-box.small.wide img{max-width:170px;max-height:40px}
 @media (max-width:640px){.logo-box.wide img{max-width:170px}}
+
+.linkbtn{background:none;border:0;color:var(--accent);font-size:13px;font-weight:650;cursor:pointer;padding:2px 4px;border-radius:6px}
+.linkbtn:hover{background:var(--soft)}

@@ -111,3 +111,24 @@ El encabezado busca solo los archivos en `assets/` y los muestra cuando existen:
 También sirven `.jpg` y `.webp`. Lo ideal es PNG o SVG con fondo transparente, de unos 200 px de alto.
 Si borras alguno, en su lugar se muestra el nombre en texto y la página se ve igual de bien. Los logotipos horizontales, como el de FCITEC, se acomodan solos en un recuadro más ancho.
 Los archivos `miidt.png` y `uagro.png` siguen en `assets/`: para usar uno de ellos, cámbiale el nombre, por ejemplo a `colaborador.png`.
+
+
+## Pantallas y equipos
+
+La página se acomoda sola al ancho disponible:
+
+- **Computadora:** dos columnas, gráficas grandes y tablas completas.
+- **Tableta:** una columna, controles más grandes y objetivos táctiles de 44 px.
+- **Teléfono:** una columna, mapa y gráficas más bajos, y las tablas se convierten en tarjetas (cada fila muestra sus datos con su etiqueta, sin desplazamiento lateral).
+
+También se adapta el trabajo que hace el equipo. La red completa genera unas 17,000 muestras por segundo, demasiado para un teléfono, así que existe el **modo ligero**, que se activa solo en pantallas pequeñas o equipos de 4 núcleos o menos y se puede encender o apagar desde la barra superior:
+
+| | Normal | Ligero |
+|---|---|---|
+| Historial en memoria | 120 s | 60 s |
+| Consulta de datos | cada 2 s | cada 3 s |
+| Estaciones que no estás viendo | 3 sensores internos | 1 sensor interno |
+| Redibujo de la señal | 5 veces por segundo | 2.5 veces por segundo |
+| FFT | 2048 muestras | 1024 muestras |
+
+Con eso, en un teléfono el flujo baja de 17,000 a unas 6,500 muestras por segundo sin perder la detección por umbral. La estación seleccionada siempre se lee completa.
