@@ -23,7 +23,8 @@
   // Planteles COBACH donde se instalarán los sensores (coordenadas de Google Maps).
   // clave, nombre, lat, lon, amplificación del suelo, frecuencia del edificio (Hz)
   const TIJUANA_SITES = [
-    ['lapresa', 'COBACH Extensión La Presa', 32.4395287, -116.9259885, 1.15, 3.4],
+    ['lapresa', 'COBACH Plantel La Presa', 32.4395287, -116.9259885, 1.15, 3.4],
+    ['lapresa_ext', 'COBACH Extensión La Presa · Parajes del Valle', 32.5140318, -116.7457632, 1.00, 3.7],
     ['florido', 'COBACH El Florido', 32.4633484, -116.8756854, 0.95, 4.2],
     ['sigloxxi', 'COBACH Siglo XXI', 32.4858367, -117.0508718, 1.25, 3.8],
     ['lamesa', 'COBACH La Mesa', 32.4597458, -116.9335433, 1.05, 2.9],
