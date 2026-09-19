@@ -45,6 +45,7 @@
     ['chilpo_tec', 'Tecnológico de Chilpancingo', 17.5310885, -99.4981823, 1.25, 3.6, 'Transición · suelo medio'],
     ['chilpo_hmn', 'Hospital de la Madre y el Niño · Chilpancingo', 17.5250282, -99.4919723, 1.15, 2.6, 'Lomerío sur · suelo firme'],
     ['chilpo_hae', 'Hospital de Alta Especialidad · Chilpancingo', 17.6057850, -99.5202839, 1.05, 2.9, 'Lomerío norte · suelo firme'],
+    ['zumpango', 'Zumpango del Río · Eduardo Neri', 17.6441702, -99.5282520, 1.15, 3.5, 'Valle · suelo medio'],
     ['tlacotepec', 'UTyP Sierra de Guerrero · Tlacotepec', 17.7903, -99.9783, 1.00, 5.1, 'Suelo firme'],
     ['tixtla', 'Edificio escolar · Tixtla', 17.5670, -99.3970, 1.15, 4.0, 'Valle lacustre'],
     ['chilapa', 'Edificio escolar · Chilapa', 17.5950, -99.1780, 1.05, 3.7, 'Suelo medio'],
@@ -53,6 +54,24 @@
     ['iguala', 'Edificio escolar · Iguala', 18.3450, -99.5390, 1.10, 3.5, 'Suelo medio'],
     ['taxco', 'Edificio histórico · Taxco', 18.5560, -99.6050, 0.85, 4.6, 'Roca'],
     ['zihua', 'Edificio escolar · Zihuatanejo', 17.6410, -101.5520, 1.35, 2.9, 'Suelo blando costero'],
+    // Costa Grande
+    ['petatlan', 'Ayuntamiento · Petatlán', 17.5380572, -101.2743865, 1.45, 3.8, 'Costa Grande · aluvión'],
+    ['atoyac', 'Palacio Municipal · Atoyac de Álvarez', 17.2122957, -100.4333019, 1.50, 3.4, 'Costa Grande · aluvión'],
+    ['tecpan', 'Ayuntamiento · Tecpan de Galeana', 17.2225884, -100.6323171, 1.55, 3.0, 'Costa Grande · aluvión (brecha de Guerrero)'],
+    ['coyuca', 'Ayuntamiento · Coyuca de Benítez', 17.0089236, -100.0893920, 1.60, 3.2, 'Llanura lagunar · suelo blando'],
+    // Costa Chica
+    ['sanmarcos', 'Ayuntamiento · San Marcos', 16.7974033, -99.3894101, 1.50, 3.6, 'Costa Chica · aluvión'],
+    ['cruzgrande', 'Ayuntamiento · Cruz Grande', 16.7226580, -99.1240728, 1.55, 3.9, 'Costa Chica · aluvión'],
+    ['ayutla', 'Casa de los Pueblos · Ayutla de los Libres', 16.9652512, -99.0974341, 1.20, 4.0, 'Piedemonte · suelo medio'],
+    ['marquelia', 'Edificio Municipal · Marquelia', 16.5835909, -98.8170222, 1.60, 4.2, 'Costa Chica · suelo blando'],
+    ['sanluis', 'San Luis Acatlán', 16.8083768, -98.7378846, 1.25, 3.8, 'Piedemonte · suelo medio'],
+    ['ometepec', 'Ayuntamiento · Ometepec', 16.6851991, -98.4042872, 1.20, 3.3, 'Lomerío · suelo firme'],
+    ['cuaji', 'Ayuntamiento · Cuajinicuilapa', 16.4736061, -98.4213903, 1.50, 4.1, 'Costa Chica · aluvión'],
+    // Montaña, Norte y Tierra Caliente
+    ['tlapa', 'Tlapa de Comonfort', 17.5484975, -98.5705890, 1.25, 3.7, 'Valle · suelo medio'],
+    ['olinala', 'Ayuntamiento · Olinalá', 17.7785416, -98.7411054, 0.95, 4.4, 'Roca'],
+    ['teloloapan', 'Edificio Municipal · Teloloapan', 18.3676220, -99.8727894, 1.00, 4.3, 'Roca'],
+    ['altamirano', 'Ayuntamiento · Ciudad Altamirano', 18.3622584, -100.6680743, 1.30, 3.1, 'Valle del Balsas · aluvión'],
   ];
 
   const stations = [];
@@ -88,10 +107,11 @@
 
   // Casos para que el panel muestre problemas reales de operación:
   const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
-  byId['shm-tijuana-07'].offlineAt = BOOT - 2.2 * 3600;   // Plantel Tijuana: se cayó hace 2 h
-  byId['shm-guerrero-16'].drop = 0.38;                     // Zihuatanejo: internet inestable
-  byId['palert-tijuana-04'].offlineAt = BOOT + 600;        // La Mesa: se cae a los 10 min
-  byId['shm-guerrero-10'].faulty = { si: 1, after: BOOT + 240 }; // Tixtla: el mpu9250_2 falla a los 4 min
+  const bySite = (net, key, kind) => stations.find((x) => x.site === `${net}:${key}` && x.kind === kind);
+  bySite('tijuana', 'tijuana', 'shm').offlineAt = BOOT - 2.2 * 3600;   // Plantel Tijuana: sin conexión desde hace 2 h
+  bySite('tijuana', 'lamesa', 'palert').offlineAt = BOOT + 600;        // La Mesa: se cae a los 10 min
+  bySite('guerrero', 'zihua', 'shm').drop = 0.38;                      // Zihuatanejo: internet inestable
+  bySite('guerrero', 'tixtla', 'shm').faulty = { si: 1, after: BOOT + 240 }; // Tixtla: el mpu9250_2 falla a los 4 min
 
   // ── Escenarios de sismo (epicentros aproximados) ──
   const SCENARIOS = {

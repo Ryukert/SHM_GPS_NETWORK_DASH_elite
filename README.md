@@ -7,7 +7,7 @@ Demostración del panel de monitoreo con una red simulada. **Ningún dato provie
 | Zona | Sitios | Instrumentos |
 |---|---|---|
 | Tijuana | 8 planteles COBACH (La Presa, El Florido, Siglo XXI, La Mesa, Nueva Tijuana, Rubén Vizcaíno, Plantel Tijuana y Primer Ayuntamiento Playas de Rosarito) | En cada plantel, 1 unidad SHM y 1 P-Alert (1 sensor en el suelo a 100 Hz), trabajando al mismo tiempo |
-| Guerrero | 16 edificios: **8 en Chilpancingo** más Tlacotepec, Tixtla, Chilapa, Acapulco (2), Iguala, Taxco y Zihuatanejo | 1 unidad SHM en cada uno |
+| Guerrero | **32 edificios**: 8 en Chilpancingo, 6 en Costa Grande (Zihuatanejo, Petatlán, Tecpan, Atoyac, Coyuca de Benítez y Acapulco Costera), Acapulco Renacimiento, 7 en Costa Chica (San Marcos, Cruz Grande, Ayutla, Marquelia, San Luis Acatlán, Ometepec y Cuajinicuilapa), la Montaña (Tlapa y Olinalá), el norte (Iguala, Taxco, Teloloapan y Zumpango), Tierra Caliente (Ciudad Altamirano), Tixtla, Chilapa y Tlacotepec | 1 unidad SHM en cada uno |
 
 ### Chilpancingo
 
