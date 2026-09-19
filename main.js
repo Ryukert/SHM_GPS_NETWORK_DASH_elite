@@ -55,7 +55,7 @@ const levelOf = (gal) => (!(gal >= ACC.det) ? 'none' : gal >= ACC.red ? 'rojo' :
 const levelRange = (lv) => ({ none: `< ${ACC.det} gal`, verde: `${ACC.det}–${ACC.yellow} gal`, amarillo: `${ACC.yellow}–${ACC.red} gal`, rojo: `≥ ${ACC.red} gal`, off: '' }[lv]);
 
 const NET = {
-  tijuana: { label: 'Tijuana', view: [[32.43, -117.16], [32.58, -116.8]], center: [32.5149, -117.0382], radiusKm: 300 },
+  tijuana: { label: 'Tijuana', view: [[32.36, -117.10], [32.54, -116.82]], center: [32.4776, -116.9424], radiusKm: 300 },
   guerrero: { label: 'Guerrero', view: [[16.6, -101.8], [18.7, -98.2]], center: [17.55, -99.8], radiusKm: 400 },
 };
 

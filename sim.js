@@ -20,17 +20,17 @@
 
   // ── Sitios ──
   // amp = amplificación del suelo; f0 = frecuencia fundamental del edificio (Hz).
+  // Planteles COBACH donde se instalarán los sensores (coordenadas de Google Maps).
+  // clave, nombre, lat, lon, amplificación del suelo, frecuencia del edificio (Hz)
   const TIJUANA_SITES = [
-    ['centro', 'COBACH Zona Centro', 32.5320, -117.0380, 1.25, 3.4],
-    ['playas', 'COBACH Playas de Tijuana', 32.5250, -117.1150, 1.45, 4.1],
-    ['taboada', 'COBACH Sánchez Taboada', 32.4930, -117.0180, 1.10, 3.8],
-    ['lamesa', 'COBACH La Mesa', 32.5040, -116.9800, 1.05, 2.9],
-    ['otay', 'COBACH Otay', 32.5330, -116.9650, 1.00, 3.2],
-    ['nuevatij', 'COBACH Nueva Tijuana', 32.5360, -116.9300, 0.95, 4.4],
-    ['cerrocol', 'COBACH Cerro Colorado', 32.4950, -116.9300, 0.90, 3.6],
-    ['presa', 'COBACH Lomas de la Presa', 32.4790, -116.9120, 1.15, 3.0],
-    ['fontana', 'COBACH Villa Fontana', 32.4700, -116.8800, 1.00, 3.9],
-    ['florido', 'COBACH El Florido', 32.4630, -116.8450, 0.95, 4.2],
+    ['lapresa', 'COBACH Extensión La Presa', 32.4395287, -116.9259885, 1.15, 3.4],
+    ['florido', 'COBACH El Florido', 32.4633484, -116.8756854, 0.95, 4.2],
+    ['sigloxxi', 'COBACH Siglo XXI', 32.4858367, -117.0508718, 1.25, 3.8],
+    ['lamesa', 'COBACH La Mesa', 32.4597458, -116.9335433, 1.05, 2.9],
+    ['nuevatij', 'COBACH Nueva Tijuana', 32.4816663, -116.9257064, 1.00, 4.4],
+    ['vizcaino', 'COBACH Mtro. Rubén Vizcaíno', 32.5125840, -116.9694802, 1.20, 3.1],
+    ['tijuana', 'COBACH Plantel Tijuana', 32.4708013, -116.8420676, 0.95, 3.6],
+    ['rosarito', 'COBACH Primer Ayuntamiento Playas de Rosarito', 32.3843751, -117.0591394, 1.45, 4.0],
   ];
   const GUERRERO_SITES = [
     ['tlacotepec', 'UTyP Sierra de Guerrero · Tlacotepec', 17.7903, -99.9783, 1.00, 5.1],
@@ -78,7 +78,7 @@
 
   // Casos para que el panel muestre problemas reales de operación:
   const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
-  byId['shm-tijuana-07'].offlineAt = BOOT - 2.2 * 3600;   // Cerro Colorado: se cayó hace 2 h
+  byId['shm-tijuana-07'].offlineAt = BOOT - 2.2 * 3600;   // Plantel Tijuana: se cayó hace 2 h
   byId['shm-guerrero-10'].drop = 0.38;                     // Zihuatanejo: internet inestable
   byId['palert-tijuana-04'].offlineAt = BOOT + 600;        // La Mesa: se cae a los 10 min
   byId['shm-guerrero-04'].faulty = { si: 1, after: BOOT + 240 }; // Tixtla: el mpu9250_2 falla a los 4 min
