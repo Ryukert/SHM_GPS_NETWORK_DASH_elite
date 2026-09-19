@@ -119,7 +119,9 @@ La página se acomoda sola al ancho disponible:
 
 - **Computadora:** dos columnas, gráficas grandes y tablas completas.
 - **Tableta:** una columna, controles más grandes y objetivos táctiles de 44 px.
-- **Teléfono:** una columna, mapa y gráficas más bajos, y las tablas se convierten en tarjetas (cada fila muestra sus datos con su etiqueta, sin desplazamiento lateral).
+- **Teléfono:** una columna, mapa y gráficas más bajos, y las tablas se convierten en tarjetas (cada fila muestra sus datos con su etiqueta, sin desplazamiento lateral). Los tres logotipos pasan a una fila arriba y el texto queda debajo, a todo lo ancho. Los botones del mapa quedan en una fila deslizable.
+
+El encuadre del mapa se calcula con las estaciones y con el tamaño real del recuadro, así que se ajusta igual de bien en una pantalla ancha que en una alta y angosta, y se recalcula al girar el teléfono.
 
 También se adapta el trabajo que hace el equipo. La red completa genera unas 17,000 muestras por segundo, demasiado para un teléfono, así que existe el **modo ligero**, que se activa solo en pantallas pequeñas o equipos de 4 núcleos o menos y se puede encender o apagar desde la barra superior:
 

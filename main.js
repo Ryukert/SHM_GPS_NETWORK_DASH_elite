@@ -797,10 +797,32 @@ function initMap() {
   map = L.map('map', { minZoom: 3 }).setView([23.6, -106], 5);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
 }
-const fitNet = (net) => map.fitBounds(NET[net].view, { padding: [20, 20] });
+// El encuadre se calcula con las estaciones, no con un rectángulo fijo: así se ve
+// bien tanto en una pantalla ancha de computadora como en una alta y angosta de teléfono.
+let lastFit = null;
+function fitPoints(pts, maxZoom) {
+  if (!pts.length) return;
+  const pad = Math.min(40, Math.max(14, Math.round(map.getSize().x * 0.06)));
+  map.fitBounds(L.latLngBounds(pts), { padding: [pad, pad], maxZoom });
+}
+function fitNet(net) {
+  lastFit = { type: 'net', net };
+  const pts = [...stations.values()].filter((s) => s.network === net).map((s) => [s.lat, s.lon]);
+  fitPoints(pts.length ? pts : [NET[net].view[0], NET[net].view[1]], 13);
+}
+function fitZone(view) {
+  lastFit = { type: 'zone', view };
+  fitPoints([view[0], view[1]], 14);
+}
 function fitAll() {
-  const pts = [...stations.values()].map((s) => [s.lat, s.lon]);
-  if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40] });
+  lastFit = { type: 'all' };
+  fitPoints([...stations.values()].map((s) => [s.lat, s.lon]), 9);
+}
+function refit() {
+  if (!lastFit) return;
+  if (lastFit.type === 'net') fitNet(lastFit.net);
+  else if (lastFit.type === 'zone') fitZone(lastFit.view);
+  else fitAll();
 }
 function passesFilter(st) {
   const net = $('fNet').value, kind = $('fKind').value, level = $('fStatus').value;
@@ -1122,7 +1144,7 @@ function selectStation(id, { pan = true } = {}) {
   $('btnPause').setAttribute('aria-pressed', 'false');
   const st = stations.get(id);
   if (LIGHT && st.kind === 'shm') { st.bootstrapped = false; st.reloadNow = true; st.nextPollAt = 0; }
-  if (pan) map.panTo([st.lat, st.lon]);
+  if (pan) { map.panTo([st.lat, st.lon]); lastFit = null; }
   if (!detNetManual) setDetNet(st.network);
   try { history.replaceState(null, '', `#${encodeURIComponent(id)}`); } catch { /* sin historial */ }
   slowRender();
@@ -1343,7 +1365,7 @@ function bind() {
   $('btnFit').addEventListener('click', fitAll);
   $('btnTij').addEventListener('click', () => fitNet('tijuana'));
   $('btnGro').addEventListener('click', () => fitNet('guerrero'));
-  $('btnChilpo').addEventListener('click', () => map.fitBounds(NET.guerrero.zoom.view, { padding: [25, 25] }));
+  $('btnChilpo').addEventListener('click', () => fitZone(NET.guerrero.zoom.view));
   $('signalMode').addEventListener('change', (e) => { selectedMode = e.target.value; renderSignal(); renderAnalysis(); });
   $('signalWin').addEventListener('change', renderSignal);
   $('signalCenter').addEventListener('change', renderSignal);
@@ -1407,7 +1429,7 @@ async function boot() {
   setInterval(fetchUsgs, 30000);
   // Al girar el teléfono o cambiar el tamaño de la ventana, se redibuja todo.
   let rz;
-  const onResize = () => { clearTimeout(rz); rz = setTimeout(() => { map.invalidateSize(); renderSignal(); renderAnalysis(); }, 250); };
+  const onResize = () => { clearTimeout(rz); rz = setTimeout(() => { map.invalidateSize(); refit(); renderSignal(); renderAnalysis(); }, 250); };
   window.addEventListener('resize', onResize);
   window.addEventListener('orientationchange', onResize);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { map.invalidateSize(); slowRender(); } });
