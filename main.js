@@ -25,7 +25,7 @@ const CFG = {
   POLL_OFFLINE_MS: 30000,
   MAX_PAGES_PER_TICK: 6,
   OFFLINE_AFTER_S: 30,
-  BUFFER_S: 120,
+  BUFFER_S: 120,        // se reduce en modo ligero (ver abajo)
   STATS_WIN_S: 10,
   GAP_RESET_S: 1.0,
   COMPLETENESS_WARN: 0.8,
@@ -37,6 +37,23 @@ const CFG = {
   USGS_REFRESH_S: 120,
 };
 const G2GAL = 981;            // 1 g = 981 gal (cm/s²)
+
+// ── Adaptación al equipo ──────────────────────────────────────────────
+// En una computadora se procesa la red completa (48 estaciones ≈ 17 000 muestras/s).
+// En un teléfono eso consume demasiada batería y memoria, así que el "modo ligero"
+// guarda menos historial, dibuja menos seguido y, de las estaciones que no estás
+// viendo, pide solo un sensor interno en lugar de los tres.
+const SMALL_SCREEN = matchMedia('(max-width: 820px)').matches || matchMedia('(pointer: coarse)').matches;
+const FEW_CORES = (navigator.hardwareConcurrency || 8) <= 4;
+const LIGHT = (() => {
+  try { const v = localStorage.getItem('fcitec_light'); if (v !== null) return v === '1'; } catch { /* sin almacenamiento */ }
+  return SMALL_SCREEN || FEW_CORES;
+})();
+const UI = {
+  signalMs: LIGHT ? 400 : 200,
+  detMs: LIGHT ? 1000 : 700,
+  slowMs: LIGHT ? 2500 : 1500,
+};
 
 // Umbrales de aceleración (gal). Se pueden cambiar en la página y se recuerdan.
 const ACC_DEFAULT = { det: 50, yellow: 100, red: 200 };
@@ -53,6 +70,13 @@ const LEVELS = {
 };
 const levelOf = (gal) => (!(gal >= ACC.det) ? 'none' : gal >= ACC.red ? 'rojo' : gal >= ACC.yellow ? 'amarillo' : 'verde');
 const levelRange = (lv) => ({ none: `< ${ACC.det} gal`, verde: `${ACC.det}–${ACC.yellow} gal`, amarillo: `${ACC.yellow}–${ACC.red} gal`, rojo: `≥ ${ACC.red} gal`, off: '' }[lv]);
+
+if (LIGHT) {
+  CFG.BUFFER_S = 60;
+  CFG.FFT_N = 1024;
+  CFG.POLL_LIVE_MS = 3000;
+  CFG.POLL_PALERT_MS = 1500;
+}
 
 const NET = {
   tijuana: { label: 'Tijuana', view: [[32.36, -117.10], [32.54, -116.82]], center: [32.4776, -116.9424], radiusKm: 300 },
@@ -375,7 +399,7 @@ async function pollStation(st) {
   st.polling = true;
   try {
     if (!st.bootstrapped) {
-      let recs = await fetchRecords({ device_id: st.id, orden: 'desc', limit: api.pageLimit });
+      let recs = await fetchRecords({ device_id: st.id, sensor_type: lightSensorFilter(st), orden: 'desc', limit: api.pageLimit });
       recs = recs.slice().reverse();
       ingest(st, recs);
       st.bootstrapped = recs.length > 0;
@@ -388,8 +412,9 @@ async function pollStation(st) {
       if (Number.isFinite(t) && t > st.newestT + 1) { st.bootstrapped = false; st.reloadNow = true; }
     } else {
       let page = 0, full = true;
+      const only = lightSensorFilter(st);
       while (full && page < CFG.MAX_PAGES_PER_TICK) {
-        const recs = await fetchRecords({ device_id: st.id, orden: 'asc', fecha_inicio: st.cursorRs, limit: api.pageLimit, offset: page * api.pageLimit });
+        const recs = await fetchRecords({ device_id: st.id, sensor_type: only, orden: 'asc', fecha_inicio: st.cursorRs, limit: api.pageLimit, offset: page * api.pageLimit });
         ingest(st, recs);
         full = recs.length >= api.pageLimit;
         page++;
@@ -407,6 +432,10 @@ async function pollStation(st) {
   } finally {
     st.polling = false;
   }
+}
+// En modo ligero solo la estación seleccionada usa sus 3 sensores internos.
+function lightSensorFilter(st) {
+  return LIGHT && st.kind === 'shm' && st.id !== selectedId ? 'mpu9250_1' : undefined;
 }
 function scheduler() {
   const t = Date.now();
@@ -682,13 +711,16 @@ function renderSignal() {
   signalChart.options.scales.x.min = -win;
   signalChart.options.scales.x.max = 0;
   signalChart.options.scales.y.title.text = center ? 'aceleración sin gravedad (gal = cm/s²)' : 'aceleración (gal = cm/s²)';
-  // Líneas de umbral (solo tienen sentido sin la gravedad).
-  if (center && selectedMode !== 'cmp') {
-    for (const [lvl, v, color] of [['det', ACC.det, '#16a34a'], ['yellow', ACC.yellow, '#ca8a04'], ['red', ACC.red, '#dc2626']]) {
-      for (const sign of [1, -1]) signalChart.data.datasets.push({ label: sign > 0 ? `${v} gal` : '', borderColor: color, borderDash: [5, 5], borderWidth: 1, data: [{ x: -win, y: sign * v }, { x: 0, y: sign * v }], _thr: lvl });
+  // Líneas de umbral: solo las que estén cerca de la señal, para no aplastar la gráfica.
+  if (center && selectedMode !== 'cmp' && hasData) {
+    let peak = 0;
+    for (const d of datasets) for (const pt of d.data) if (pt.y !== null && Math.abs(pt.y) > peak) peak = Math.abs(pt.y);
+    const shown = [[ACC.det, '#16a34a'], [ACC.yellow, '#ca8a04'], [ACC.red, '#dc2626']].filter(([v]) => v <= Math.max(peak * 1.6, ACC.det * 0.6));
+    for (const [v, color] of shown) {
+      for (const sign of [1, -1]) signalChart.data.datasets.push({ label: sign > 0 ? `${v} gal` : '', borderColor: color, borderDash: [5, 5], borderWidth: 1, data: [{ x: -win, y: sign * v }, { x: 0, y: sign * v }] });
     }
     signalChart.options.plugins.legend.labels.filter = (item) => item.text !== '';
-    signalChart.update('none');
+    if (shown.length) signalChart.update('none');
   }
   signalChart.update('none');
   $('signalEmpty').hidden = hasData;
@@ -886,6 +918,7 @@ function renderKpis() {
   api.requests = api.requests.filter((r) => Date.now() - r < 60000);
   setText('apiStatus', 'Modo simulación · datos generados en el navegador');
   setText('apiMeta', `${stations.size} estaciones · ${api.requests.length.toLocaleString('es-MX')} consultas/min · USGS ${usgs.status} · ${fmtClock(nowS())}`);
+  setText('btnLight', LIGHT ? 'Modo ligero: activado' : 'Modo ligero: desactivado');
 }
 
 function renderDetail() {
@@ -925,7 +958,7 @@ function renderDetail() {
     setText('dM7', st.spec && Number.isFinite(st.spec.dom) ? `${st.spec.dom.toFixed(2)} Hz` : '–');
     setText('dM7Sub', st.spec ? `amplitud ${fmtGal(st.spec.domAmp, 2)}` : 'se calcula con la señal continua');
     setText('dM8L', 'Sensores internos');
-    setText('dM8', `${s.reporting} / ${s.expected}`);
+    setText('dM8', `${s.reporting} / ${LIGHT && st.id !== selectedId ? 1 : s.expected}`);
     setText('dM8Sub', s.reporting === s.expected ? 'combinados en una sola medición' : 'se combinan los que siguen reportando');
   }
   $('dChips').innerHTML = st.kind === 'palert' ? '' : s.sensors.map(([name, x]) => {
@@ -972,15 +1005,15 @@ function renderStationTable() {
     const has = Number.isFinite(st.newestT);
     return `<tr data-id="${esc(st.id)}" class="${st.id === selectedId ? 'selected' : ''}" tabindex="0">
       <td><b>${esc(st.siteName)}</b><br><small>${esc(st.id)}</small></td>
-      <td>${st.kind === 'palert' ? 'P-Alert' : 'SHM'}<br><small>${NET[st.network].label}</small></td>
-      <td><span class="tag ${LEVELS[s.level].cls}">${LEVELS[s.level].label}</span></td>
-      <td class="num">${s.level !== 'off' ? fmtGal(s.holdGal) : '–'}</td>
-      <td class="num">${s.level !== 'off' ? fmtGal(s.pgaGal) : '–'}</td>
-      <td>${s.level === 'off' ? '–' : s.health === 'ok' ? 'Bien' : '<span class="low">Revisar</span>'}</td>
-      <td>${has ? fmtClock(st.newestT, true) : '–'}</td>
-      <td class="num">${s.online ? fmtLag(s.lagMin) : has ? fmtAgo(s.lag) : '–'}</td>
-      <td class="num ${s.online && s.comp < CFG.COMPLETENESS_WARN ? 'low' : ''}">${s.online ? fmtPct(s.comp) : '–'}</td>
-      <td class="num">${has && Number.isFinite(s.intensity) ? `<span class="int int-${s.intensity}">${s.intensity}</span>` : '–'}</td></tr>`;
+      <td data-l="Tipo">${st.kind === 'palert' ? 'P-Alert' : 'SHM'} · ${NET[st.network].label}</td>
+      <td data-l="Nivel"><span class="tag ${LEVELS[s.level].cls}">${LEVELS[s.level].label}</span></td>
+      <td class="num" data-l="Pico 60 s">${s.level !== 'off' ? fmtGal(s.holdGal) : '–'}</td>
+      <td class="num" data-l="Actual">${s.level !== 'off' ? fmtGal(s.pgaGal) : '–'}</td>
+      <td data-l="Salud">${s.level === 'off' ? '–' : s.health === 'ok' ? 'Bien' : '<span class="low">Revisar</span>'}</td>
+      <td data-l="Última muestra">${has ? fmtClock(st.newestT, true) : '–'}</td>
+      <td class="num" data-l="Retraso">${s.online ? fmtLag(s.lagMin) : has ? fmtAgo(s.lag) : '–'}</td>
+      <td class="num ${s.online && s.comp < CFG.COMPLETENESS_WARN ? 'low' : ''}" data-l="Completitud">${s.online ? fmtPct(s.comp) : '–'}</td>
+      <td class="num" data-l="Intensidad">${has && Number.isFinite(s.intensity) ? `<span class="int int-${s.intensity}">${s.intensity}</span>` : '–'}</td></tr>`;
   }).join('');
 }
 
@@ -1017,17 +1050,17 @@ function renderDetection() {
       <small>Primera detección ${fmtClock(g.start)} · ${net ? 'detección de red' : `se necesitan ${CFG.NET_MIN_STATIONS} estaciones para detección de red`}${live ? ' · en curso' : ''}</small>
     </div>
     <div class="table-scroll" style="padding:0">
-      <table class="mini">
+      <table class="mini stack">
         <thead><tr><th>Estación</th><th>Detectó</th><th>Pico</th><th>Nivel</th><th>Ahora</th></tr></thead>
         <tbody>${rows.map((r) => {
           const lv = levelOf(r.peak);
           const now = r.st.stats?.pgaGal;
           return `<tr data-id="${esc(r.st.id)}">
             <td>${esc(r.st.siteName)} <small>${r.st.kind === 'palert' ? 'P-Alert' : 'SHM'}</small></td>
-            <td class="num">${fmtClock(r.tFirst)} <small>+${(r.tFirst - g.start).toFixed(1)} s</small></td>
-            <td class="num"><b>${fmtGal(r.peak)}</b></td>
-            <td><span class="tag ${LEVELS[lv].cls}">${LEVELS[lv].label}</span></td>
-            <td class="num">${r.st.acc.active ? fmtGal(now) : 'bajo umbral'}</td></tr>`;
+            <td class="num" data-l="Detectó">${fmtClock(r.tFirst)} <small>+${(r.tFirst - g.start).toFixed(1)} s</small></td>
+            <td class="num" data-l="Pico"><b>${fmtGal(r.peak)}</b></td>
+            <td data-l="Nivel"><span class="tag ${LEVELS[lv].cls}">${LEVELS[lv].label}</span></td>
+            <td class="num" data-l="Ahora">${r.st.acc.active ? fmtGal(now) : 'bajo umbral'}</td></tr>`;
         }).join('')}</tbody>
       </table>
     </div>` + officialListHtml(detNet);
@@ -1088,6 +1121,7 @@ function selectStation(id, { pan = true } = {}) {
   $('btnPause').textContent = 'Pausar';
   $('btnPause').setAttribute('aria-pressed', 'false');
   const st = stations.get(id);
+  if (LIGHT && st.kind === 'shm') { st.bootstrapped = false; st.reloadNow = true; st.nextPollAt = 0; }
   if (pan) map.panTo([st.lat, st.lon]);
   if (!detNetManual) setDetNet(st.network);
   try { history.replaceState(null, '', `#${encodeURIComponent(id)}`); } catch { /* sin historial */ }
@@ -1347,6 +1381,10 @@ function bind() {
   ['thDet', 'thYellow', 'thRed'].forEach((id) => $(id).addEventListener('change', readThresholds));
   $('btnThReset').addEventListener('click', () => { Object.assign(ACC, ACC_DEFAULT); saveAcc(); renderThresholdInputs(); slowRender(); renderDetection(); });
   $('showOfficial').addEventListener('change', () => { usgs.lastFetch = 0; fetchUsgs(); renderOfficialLayers(); renderDetection(); });
+  $('btnLight').addEventListener('click', () => {
+    try { localStorage.setItem('fcitec_light', LIGHT ? '0' : '1'); } catch { /* sin almacenamiento */ }
+    location.reload();
+  });
 }
 
 // ───────────────────────── arranque ─────────────────────────
@@ -1363,10 +1401,16 @@ async function boot() {
   fetchUsgs();
 
   setInterval(scheduler, 250);
-  setInterval(() => { if (!document.hidden) renderSignal(); }, 200);
-  setInterval(() => { if (!document.hidden) renderDetection(); }, 700);
-  setInterval(() => { if (!document.hidden) slowRender(); }, 1500);
+  setInterval(() => { if (!document.hidden) renderSignal(); }, UI.signalMs);
+  setInterval(() => { if (!document.hidden) renderDetection(); }, UI.detMs);
+  setInterval(() => { if (!document.hidden) slowRender(); }, UI.slowMs);
   setInterval(fetchUsgs, 30000);
+  // Al girar el teléfono o cambiar el tamaño de la ventana, se redibuja todo.
+  let rz;
+  const onResize = () => { clearTimeout(rz); rz = setTimeout(() => { map.invalidateSize(); renderSignal(); renderAnalysis(); }, 250); };
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', onResize);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { map.invalidateSize(); slowRender(); } });
   scheduler();
 }
 boot();

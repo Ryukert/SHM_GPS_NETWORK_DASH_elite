@@ -63,6 +63,7 @@
     <div class="wrap statusbar-inner">
       <span class="dot ok" id="apiDot"></span>
       <span id="apiStatus">Modo simulación</span>
+      <button class="linkbtn" id="btnLight" title="Reduce el trabajo del equipo: menos historial y menos sensores por estación. Útil en teléfonos."></button>
       <span class="statusbar-right" id="apiMeta"></span>
     </div>
   </div>
@@ -310,7 +311,7 @@
         </div>
       </div>
       <div class="table-scroll">
-        <table>
+        <table class="stack">
           <thead><tr><th>Estación</th><th>Tipo</th><th>Nivel</th><th>Pico 60 s</th><th>Actual</th><th>Salud</th><th>Última muestra</th><th>Retraso</th><th>Completitud</th><th>Intensidad</th></tr></thead>
           <tbody id="stationTable"></tbody>
         </table>
