@@ -32,17 +32,27 @@
     ['tijuana', 'COBACH Plantel Tijuana', 32.4708013, -116.8420676, 0.95, 3.6],
     ['rosarito', 'COBACH Primer Ayuntamiento Playas de Rosarito', 32.3843751, -117.0591394, 1.45, 4.0],
   ];
+  // Guerrero. En Chilpancingo se concentran estaciones en las zonas de mayor efecto
+  // sísmico: el valle aluvial del río Huacapa (suelo blando, amplifica más) frente a
+  // los lomeríos del sur y norte (suelo más firme).
+  // clave, nombre, lat, lon, amplificación del suelo, frecuencia del edificio (Hz), tipo de suelo
   const GUERRERO_SITES = [
-    ['tlacotepec', 'UTyP Sierra de Guerrero · Tlacotepec', 17.7903, -99.9783, 1.00, 5.1],
-    ['chilpo_cu', 'Ciudad Universitaria · Chilpancingo', 17.5310, -99.4960, 1.10, 3.3],
-    ['chilpo_centro', 'Edificio Centro · Chilpancingo', 17.5510, -99.5010, 1.20, 2.6],
-    ['tixtla', 'Edificio escolar · Tixtla', 17.5670, -99.3970, 1.15, 4.0],
-    ['chilapa', 'Edificio escolar · Chilapa', 17.5950, -99.1780, 1.05, 3.7],
-    ['acapulco_cost', 'Edificio Costera · Acapulco', 16.8580, -99.8850, 1.60, 1.8],
-    ['acapulco_ren', 'Edificio Renacimiento · Acapulco', 16.8900, -99.8000, 1.40, 3.1],
-    ['iguala', 'Edificio escolar · Iguala', 18.3450, -99.5390, 1.10, 3.5],
-    ['taxco', 'Edificio histórico · Taxco', 18.5560, -99.6050, 0.85, 4.6],
-    ['zihua', 'Edificio escolar · Zihuatanejo', 17.6410, -101.5520, 1.35, 2.9],
+    ['chilpo_mercado', 'Mercado Central · Chilpancingo', 17.5643028, -99.5081892, 1.95, 2.4, 'Valle del Huacapa · suelo blando'],
+    ['chilpo_central', 'Central de autobuses · Chilpancingo', 17.5621099, -99.5102206, 1.85, 3.0, 'Valle del Huacapa · suelo blando'],
+    ['chilpo_prepa1', 'Preparatoria 1 UAGro · Chilpancingo', 17.5554969, -99.5043507, 1.70, 3.4, 'Valle del Huacapa · suelo blando'],
+    ['chilpo_cu', 'Centro Universitario UAGro · Chilpancingo', 17.5369204, -99.4956120, 1.35, 2.8, 'Transición · suelo medio'],
+    ['chilpo_palacio', 'Palacio de Gobierno · Chilpancingo', 17.5285524, -99.4947584, 1.30, 2.2, 'Transición · suelo medio'],
+    ['chilpo_tec', 'Tecnológico de Chilpancingo', 17.5310885, -99.4981823, 1.25, 3.6, 'Transición · suelo medio'],
+    ['chilpo_hmn', 'Hospital de la Madre y el Niño · Chilpancingo', 17.5250282, -99.4919723, 1.15, 2.6, 'Lomerío sur · suelo firme'],
+    ['chilpo_hae', 'Hospital de Alta Especialidad · Chilpancingo', 17.6057850, -99.5202839, 1.05, 2.9, 'Lomerío norte · suelo firme'],
+    ['tlacotepec', 'UTyP Sierra de Guerrero · Tlacotepec', 17.7903, -99.9783, 1.00, 5.1, 'Suelo firme'],
+    ['tixtla', 'Edificio escolar · Tixtla', 17.5670, -99.3970, 1.15, 4.0, 'Valle lacustre'],
+    ['chilapa', 'Edificio escolar · Chilapa', 17.5950, -99.1780, 1.05, 3.7, 'Suelo medio'],
+    ['acapulco_cost', 'Edificio Costera · Acapulco', 16.8580, -99.8850, 1.60, 1.8, 'Suelo blando costero'],
+    ['acapulco_ren', 'Edificio Renacimiento · Acapulco', 16.8900, -99.8000, 1.40, 3.1, 'Suelo medio'],
+    ['iguala', 'Edificio escolar · Iguala', 18.3450, -99.5390, 1.10, 3.5, 'Suelo medio'],
+    ['taxco', 'Edificio histórico · Taxco', 18.5560, -99.6050, 0.85, 4.6, 'Roca'],
+    ['zihua', 'Edificio escolar · Zihuatanejo', 17.6410, -101.5520, 1.35, 2.9, 'Suelo blando costero'],
   ];
 
   const stations = [];
@@ -53,11 +63,11 @@
   const INSTALL_GAIN = 1.5;                     // la unidad está en un nivel alto del edificio
 
   function addSite(net, city, row, i) {
-    const [key, name, lat, lon, amp, f0] = row;
+    const [key, name, lat, lon, amp, f0, soil] = row;
     stations.push({
       id: `shm-${net}-${String(i + 1).padStart(2, '0')}`, site: `${net}:${key}`, siteName: name,
       name: `${name} · SHM`, city, lat, lon, network: net, kind: 'shm', type: 'SHM unificado (3 sensores internos)',
-      fs: 150, sensors: SHM_SENSORS, amp, f0,
+      fs: 150, sensors: SHM_SENSORS, amp, f0, soil: soil || '',
       // sesgo (g) y error de ganancia de cada sensor interno
       bias: SHM_SENSORS.map((_, si) => [(((i + si) * 37) % 11 - 5) * 0.0006, (((i + si) * 53) % 9 - 4) * 0.0005, (((i + si) * 29) % 7 - 3) * 0.0008]),
       gainErr: SHM_SENSORS.map((_, si) => 1 + ((((i * 3 + si * 5) % 7) - 3) * 0.006)),
@@ -68,20 +78,20 @@
       stations.push({
         id: `palert-tijuana-${String(i + 1).padStart(2, '0')}`, site: `${net}:${key}`, siteName: name,
         name: `${name} · P-Alert`, city, lat, lon, network: net, kind: 'palert', type: 'P-Alert (alerta temprana)',
-        fs: 100, sensors: ['palert'], amp, f0: 0, bias: [[0, 0, 0]], gainErr: [1],
+        fs: 100, sensors: ['palert'], amp, f0: 0, soil: soil || '', bias: [[0, 0, 0]], gainErr: [1],
         noise: 0.00030, modeAmp: 0, drop: 0.003, lag: 0.6, seed: stations.length * 101 + 7,
       });
     }
   }
   TIJUANA_SITES.forEach((r, i) => addSite('tijuana', 'Tijuana, Baja California', r, i));
-  GUERRERO_SITES.forEach((r, i) => addSite('guerrero', 'Guerrero', r, i));
+  GUERRERO_SITES.forEach((r, i) => addSite('guerrero', r[1].includes('Chilpancingo') ? 'Chilpancingo, Guerrero' : 'Guerrero', r, i));
 
   // Casos para que el panel muestre problemas reales de operación:
   const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
   byId['shm-tijuana-07'].offlineAt = BOOT - 2.2 * 3600;   // Plantel Tijuana: se cayó hace 2 h
-  byId['shm-guerrero-10'].drop = 0.38;                     // Zihuatanejo: internet inestable
+  byId['shm-guerrero-16'].drop = 0.38;                     // Zihuatanejo: internet inestable
   byId['palert-tijuana-04'].offlineAt = BOOT + 600;        // La Mesa: se cae a los 10 min
-  byId['shm-guerrero-04'].faulty = { si: 1, after: BOOT + 240 }; // Tixtla: el mpu9250_2 falla a los 4 min
+  byId['shm-guerrero-10'].faulty = { si: 1, after: BOOT + 240 }; // Tixtla: el mpu9250_2 falla a los 4 min
 
   // ── Escenarios de sismo (epicentros aproximados) ──
   const SCENARIOS = {

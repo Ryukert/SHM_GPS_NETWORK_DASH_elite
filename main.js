@@ -56,7 +56,8 @@ const levelRange = (lv) => ({ none: `< ${ACC.det} gal`, verde: `${ACC.det}–${A
 
 const NET = {
   tijuana: { label: 'Tijuana', view: [[32.36, -117.10], [32.54, -116.82]], center: [32.4776, -116.9424], radiusKm: 300 },
-  guerrero: { label: 'Guerrero', view: [[16.6, -101.8], [18.7, -98.2]], center: [17.55, -99.8], radiusKm: 400 },
+  guerrero: { label: 'Guerrero', view: [[16.6, -101.8], [18.7, -98.2]], center: [17.55, -99.8], radiusKm: 400,
+    zoom: { label: 'Chilpancingo', view: [[17.515, -99.535], [17.615, -99.478]] } },
 };
 
 const STATION_INFO = Object.fromEntries(SIM.stations.map((s) => [s.id, s]));
@@ -893,7 +894,7 @@ function renderDetail() {
   const s = st.stats || stationStats(st);
   setText('dKind', `${st.kind === 'palert' ? 'P-Alert' : 'SHM'} · ${NET[st.network].label}`);
   setText('dName', st.siteName);
-  setText('dMeta', `${st.id} · ${st.type}${st.kind === 'shm' ? ` · modo del edificio ≈ ${st.f0} Hz` : ''}`);
+  setText('dMeta', `${st.id} · ${st.type}${st.soil ? ` · ${st.soil}` : ''}${st.kind === 'shm' ? ` · modo del edificio ≈ ${st.f0} Hz` : ''}`);
   const badge = $('dBadge');
   badge.textContent = s.level === 'off' || s.level === 'none' ? LEVELS[s.level].label : `${LEVELS[s.level].label} · ${fmtGal(s.holdGal, 0)}`;
   badge.className = `badge ${LEVELS[s.level].cls}`;
@@ -1308,6 +1309,7 @@ function bind() {
   $('btnFit').addEventListener('click', fitAll);
   $('btnTij').addEventListener('click', () => fitNet('tijuana'));
   $('btnGro').addEventListener('click', () => fitNet('guerrero'));
+  $('btnChilpo').addEventListener('click', () => map.fitBounds(NET.guerrero.zoom.view, { padding: [25, 25] }));
   $('signalMode').addEventListener('change', (e) => { selectedMode = e.target.value; renderSignal(); renderAnalysis(); });
   $('signalWin').addEventListener('change', renderSignal);
   $('signalCenter').addEventListener('change', renderSignal);
