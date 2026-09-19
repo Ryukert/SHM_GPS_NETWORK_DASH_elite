@@ -6,7 +6,7 @@ Demostración del panel de monitoreo con una red simulada. **Ningún dato provie
 
 | Zona | Sitios | Instrumentos |
 |---|---|---|
-| Tijuana | 10 planteles COBACH | En cada plantel, 1 unidad SHM y 1 P-Alert (1 sensor en el suelo a 100 Hz), trabajando al mismo tiempo |
+| Tijuana | 8 planteles COBACH (La Presa, El Florido, Siglo XXI, La Mesa, Nueva Tijuana, Rubén Vizcaíno, Plantel Tijuana y Primer Ayuntamiento Playas de Rosarito) | En cada plantel, 1 unidad SHM y 1 P-Alert (1 sensor en el suelo a 100 Hz), trabajando al mismo tiempo |
 | Guerrero | 10 edificios (Tlacotepec, Chilpancingo, Tixtla, Chilapa, Acapulco, Iguala, Taxco, Zihuatanejo) | 1 unidad SHM en cada uno |
 
 **El SHM es un sensor unificado:** una sola unidad con 3 sensores montados juntos (mpu9250_1, mpu9250_2 y lsm6dsox a 150 Hz) que miden el mismo movimiento. El panel los combina en una sola señal por ciclo y hace todo el análisis (RMS, PGA, espectro, STA/LTA, detección) sobre ella. Los sensores individuales solo se usan para diagnosticar la salud de la unidad.
@@ -27,13 +27,13 @@ Por eso el panel:
 
 La descarga "SHM unificado" usa la misma lógica.
 
-Nombres y coordenadas de los planteles son **aproximados**, solo para la demostración.
+Los planteles y sus coordenadas son los reales donde se instalarán los sensores (ubicación tomada de Google Maps; conviene verificarla en sitio). Todo lo demás —señales, sensores y sismos— es simulado.
 
 La señal incluye ruido propio y pequeños errores de calibración de cada sensor, el modo de vibración de cada edificio, muestras perdidas,
 retraso de transmisión y sismos con onda P (6.5 km/s) y onda S (3.7 km/s) que llegan a cada sitio según su distancia.
 
 Para mostrar problemas de operación hay tres casos preparados:
-- SHM de COBACH Cerro Colorado: sin conexión desde hace 2 horas.
+- SHM del Plantel Tijuana: sin conexión desde hace 2 horas.
 - SHM de Zihuatanejo: pierde cerca del 38 % de las muestras.
 - P-Alert de COBACH La Mesa: se desconecta a los 10 minutos de abrir la página.
 - SHM de Tixtla: a los 4 minutos su sensor interno mpu9250_2 empieza a derivarse; el panel lo detecta porque ya no coincide con los otros dos.
